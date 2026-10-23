@@ -1,4 +1,15 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+} from "react-router-dom";
+
+import Login from "./Components/login";
+import ForgotPassword from "./Components/ForgetPassword";
+import OTPVerification from "./Components/OTP";
+import ResetPassword from "./Components/ResetPassword";
 
 import ReaderManagement from "./Components/management";
 import ReaderDetailView from "./Components/ReaderDetailView";
@@ -19,45 +30,61 @@ import PlatformSettings from "./Components/PlatformSettings";
 import Profile from "./Components/Profile";
 import Notification from "./Components/Notification";
 
+function ProtectedRoute() {
+  const token = localStorage.getItem("token");
+
+  return token ? <Outlet /> : <Navigate to="/" replace />;
+}
+
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/" element={<Login />} />
 
-        <Route path="/" element={<ReaderManagement />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
 
-        <Route path="/reader-detail" element={<ReaderDetailView />} />
+        <Route path="/otp" element={<OTPVerification />} />
 
-        <Route path="/author-management" element={<AuthorManagement />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
-        <Route path="/author-detail" element={<AuthorDetailView />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/dashboard" element={<Dashboard />} />
 
-        <Route path="/requests" element={<RequestsManagement />} />
+          <Route path="/readers" element={<ReaderManagement />} />
 
-        <Route path="/request-detail" element={<RequestDetailView />} />
+          <Route path="/reader-detail" element={<ReaderDetailView />} />
 
-        <Route path="/subscription-plans" element={<SubscriptionPlans />} />
+          <Route path="/author-management" element={<AuthorManagement />} />
 
-        <Route path="/reports-analytics" element={<ReportsAnalytics />} />
+          <Route path="/author-detail" element={<AuthorDetailView />} />
 
-        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/requests" element={<RequestsManagement />} />
 
-        <Route path="/faqs" element={<FAQsManagement />} />
+          <Route path="/request-detail" element={<RequestDetailView />} />
 
-        <Route path="/ebooks" element={<Ebook />} />
+          <Route path="/subscription-plans" element={<SubscriptionPlans />} />
 
-        <Route path="/ebook-detail" element={<EbookDetails />} />
+          <Route path="/reports-analytics" element={<ReportsAnalytics />} />
 
-        <Route path="/autograph" element={<Autograph />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
-        <Route path="/query-management" element={<QueryManagement />} />
+          <Route path="/faqs" element={<FAQsManagement />} />
 
-        <Route path="/platform-settings" element={<PlatformSettings />} />
+          <Route path="/ebooks" element={<Ebook />} />
 
-        <Route path="/profile" element={<Profile />} />
+          <Route path="/ebook-detail" element={<EbookDetails />} />
 
-        <Route path="/notification" element={<Notification />} />
+          <Route path="/autograph" element={<Autograph />} />
+
+          <Route path="/query-management" element={<QueryManagement />} />
+
+          <Route path="/platform-settings" element={<PlatformSettings />} />
+
+          <Route path="/profile" element={<Profile />} />
+
+          <Route path="/notification" element={<Notification />} />
+        </Route>
       </Routes>
     </BrowserRouter>
   );

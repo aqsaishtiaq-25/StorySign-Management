@@ -83,7 +83,7 @@ export default function ReaderLayout({
   // NOTE: 5 = Autograph Fee, 6 = Notifications, 8 = Queries, 9 = Settings, 12 = Profile
   // Paths yahan App.tsx ke routes se bilkul match karte hain
   const navRoutes: (string | null)[] = [
-    "/",
+    "/readers", // pehle "/" tha (Login page), ab Reader Management ka route
     "/author-management",
     "/ebooks",
     "/requests",
@@ -159,6 +159,12 @@ export default function ReaderLayout({
 
   const goTo = (path: string | null) => {
     if (path) navigate(path);
+  };
+
+  // Logout: token hatao aur login page par bhejo
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    navigate("/", { replace: true });
   };
 
   const activeBlock = (Icon: any) => (
@@ -275,7 +281,7 @@ export default function ReaderLayout({
         </Box>
 
         <Box pt="xs" mt="auto">
-          <UnstyledButton>
+          <UnstyledButton onClick={handleLogout}>
             <Group gap={6} wrap="nowrap">
               <BiLogOut size={18} color={accentCardBg} />
 
