@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { CSSProperties } from "react";
 import {
   Box,
@@ -13,6 +13,7 @@ import { MdOutlineVerified } from "react-icons/md";
 
 import ReaderLayout from "./ReaderLayout";
 import alexa from "../assets/Readerimg.png"; // Alexa (girl) photo
+import { getMyProfile, updateMyProfile } from "../api";
 
 /**
  * SIZING
@@ -81,12 +82,27 @@ export default function Profile() {
   const [form, setForm] = useState<Record<string, string>>(emptyForm);
   const [submitted, setSubmitted] = useState<boolean>(false);
   const [successOpen, setSuccessOpen] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string>("");
 
   // name + email shown at the top of the panel
   const [profileInfo, setProfileInfo] = useState({
-    name: "Alexa Rawles",
-    email: "alexarawles@gmail.com",
+    name: "",
+    email: "",
   });
+
+  // Page khulte hi asli profile backend se laao
+  useEffect(() => {
+    getMyProfile()
+      .then((data) => {
+        const p = data.user ?? data;
+        const name = `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim();
+        const email = p.email ?? "";
+        setProfileInfo({ name, email });
+        setForm((prev) => ({ ...prev, fullName: name, email }));
+      })
+      .catch((err) => setErrorMsg((err as Error).message));
+  }, []);
 
   const setField = (key: string, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -107,8 +123,9 @@ export default function Profile() {
   const hasError = (key: string): boolean => submitted && isInvalid(key);
 
   // SCREEN 1 -> SCREEN 2 (success popup)
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     setSubmitted(true);
+    setErrorMsg("");
     const keys = [
       "fullName",
       "email",
@@ -117,21 +134,43 @@ export default function Profile() {
       "confirmPassword",
     ];
     if (keys.some(isInvalid)) return;
-    // TODO: call your API here with `form`
-    setSuccessOpen(true);
+
+    const [firstName, ...rest] = form.fullName.trim().split(" ");
+    const lastName = rest.join(" ");
+
+    try {
+      setLoading(true);
+      await updateMyProfile({
+        firstName,
+        lastName: lastName || undefined,
+        email: form.email.trim(),
+      });
+      setSuccessOpen(true);
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCancel = () => {
     setSubmitted(false);
-    setForm(emptyForm);
+    setErrorMsg("");
+    setForm({
+      ...emptyForm,
+      fullName: profileInfo.name,
+      email: profileInfo.email,
+    });
   };
 
-  // Okay on the popup: show new name/email, clear the form, back to screen 1
+  // Okay on the popup: show new name/email, back to screen 1
   const handleOkay = () => {
-    setProfileInfo({ name: form.fullName.trim(), email: form.email.trim() });
+    const name = form.fullName.trim();
+    const email = form.email.trim();
+    setProfileInfo({ name, email });
     setSuccessOpen(false);
     setSubmitted(false);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, fullName: name, email });
   };
 
   return (
@@ -355,6 +394,7 @@ export default function Profile() {
             <UnstyledButton
               className="action"
               onClick={handleUpdate}
+              disabled={loading}
               style={{
                 width: u(252),
                 height: u(49),
@@ -364,6 +404,7 @@ export default function Profile() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                opacity: loading ? 0.6 : 1,
               }}
             >
               <Text
@@ -374,7 +415,7 @@ export default function Profile() {
                   whiteSpace: "nowrap",
                 }}
               >
-                Update Profile
+                {loading ? "Updating..." : "Update Profile"}
               </Text>
             </UnstyledButton>
 
@@ -404,6 +445,22 @@ export default function Profile() {
               </Text>
             </UnstyledButton>
           </Flex>
+
+          {/* backend error message */}
+          {errorMsg && (
+            <Text
+              c="red.4"
+              style={{
+                position: "absolute",
+                top: u(580),
+                left: u(41),
+                right: u(55),
+                fontSize: uMin(15, 10),
+              }}
+            >
+              {errorMsg}
+            </Text>
+          )}
         </Box>
       </Box>
 

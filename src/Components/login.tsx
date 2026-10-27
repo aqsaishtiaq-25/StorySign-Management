@@ -5,12 +5,14 @@ import {
   Paper,
   PasswordInput,
   Stack,
+  Text,
   TextInput,
   Title,
 } from "@mantine/core";
 import { useNavigate } from "react-router-dom";
 
 import AuthLayout from "./AuthLayout";
+import { login } from "../api"; // path apni file ke hisaab se theek karein
 
 function Login() {
   const navigate = useNavigate();
@@ -18,14 +20,24 @@ function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setSubmitted(true);
+    setErrorMsg("");
 
     if (!email.trim() || !password.trim()) return;
 
-    localStorage.setItem("token", "demo-token");
-    navigate("/dashboard");
+    try {
+      setLoading(true);
+      await login(email.trim(), password);
+      navigate("/dashboard");
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -80,6 +92,12 @@ function Login() {
             }}
           />
 
+          {errorMsg && (
+            <Text c="red.4" size="xs">
+              {errorMsg}
+            </Text>
+          )}
+
           <Button
             fullWidth
             mt="sm"
@@ -89,6 +107,7 @@ function Login() {
             size="md"
             style={{ fontWeight: 600 }}
             onClick={handleLogin}
+            loading={loading}
           >
             LOGIN
           </Button>
