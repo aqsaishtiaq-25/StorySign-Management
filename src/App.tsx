@@ -10,6 +10,7 @@ import Login from "./Components/login";
 import ForgotPassword from "./Components/ForgetPassword";
 import OTPVerification from "./Components/OTP";
 import ResetPassword from "./Components/ResetPassword";
+import Signup from "./Components/Signup";
 
 import ReaderManagement from "./Components/management";
 import ReaderDetailView from "./Components/ReaderDetailView";
@@ -48,6 +49,7 @@ function App() {
 
         <Route path="/reset-password" element={<ResetPassword />} />
 
+        <Route path="/signup" element={<Signup />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<Dashboard />} />
 

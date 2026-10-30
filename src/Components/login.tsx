@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Anchor,
   Button,
+  Group,
   Paper,
   PasswordInput,
   Stack,
@@ -12,7 +13,7 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import AuthLayout from "./AuthLayout";
-import { login } from "../api"; // path apni file ke hisaab se theek karein
+import { login } from "../api";
 
 function Login() {
   const navigate = useNavigate();
@@ -112,15 +113,26 @@ function Login() {
             LOGIN
           </Button>
 
-          <Anchor
-            onClick={() => navigate("/forgot-password")}
-            size="xs"
-            ta="right"
-            c="#ffebbc"
-            style={{ cursor: "pointer" }}
-          >
-            Reset Your Password
-          </Anchor>
+          <Group justify="space-between">
+            <Anchor
+              onClick={() => navigate("/signup")}
+              size="xs"
+              c="#ffebbc"
+              fw={700}
+              style={{ cursor: "pointer" }}
+            >
+              Sign Up
+            </Anchor>
+
+            <Anchor
+              onClick={() => navigate("/forgot-password")}
+              size="xs"
+              c="#ffebbc"
+              style={{ cursor: "pointer" }}
+            >
+              Reset Your Password
+            </Anchor>
+          </Group>
         </Stack>
       </Paper>
     </AuthLayout>

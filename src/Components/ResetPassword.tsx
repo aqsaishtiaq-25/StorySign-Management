@@ -1,10 +1,62 @@
-import { Button, Paper, PasswordInput, Stack, Title } from "@mantine/core";
+import { useEffect, useState } from "react";
+import {
+  Button,
+  Paper,
+  PasswordInput,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import { useNavigate } from "react-router-dom";
 
 import AuthLayout from "./AuthLayout";
+import { resetPassword } from "../api";
+
+const inputStyles = {
+  label: { color: "#ffebbca0", marginBottom: "16px" },
+  innerInput: { color: "#ffffff" },
+  input: {
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: "6px",
+  },
+};
 
 function ResetPassword() {
   const navigate = useNavigate();
+  const resetToken = sessionStorage.getItem("resetToken") ?? "";
+
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  // token ke baghair seedha is page par aana mana hai
+  useEffect(() => {
+    if (!resetToken) navigate("/forgot-password", { replace: true });
+  }, [resetToken, navigate]);
+
+  const tooShort = password.length < 8;
+  const mismatch = password !== confirmPassword;
+
+  const handleUpdate = async () => {
+    setSubmitted(true);
+    setErrorMsg("");
+    if (tooShort || mismatch) return;
+
+    try {
+      setLoading(true);
+      await resetPassword(resetToken, password, confirmPassword);
+      sessionStorage.removeItem("resetEmail");
+      sessionStorage.removeItem("resetToken");
+      navigate("/");
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <AuthLayout>
@@ -27,30 +79,36 @@ function ResetPassword() {
           <PasswordInput
             label="Password:"
             placeholder="Password"
-            styles={{
-              label: { color: "#ffebbca0", marginBottom: "16px" },
-              innerInput: { color: "#ffffff" },
-              input: {
-                backgroundColor: "rgba(255, 255, 255, 0.05)",
-                borderColor: "rgba(255, 255, 255, 0.2)",
-                borderRadius: "6px",
-              },
-            }}
+            value={password}
+            onChange={(e) => setPassword(e.currentTarget.value)}
+            error={submitted && tooShort}
+            styles={inputStyles}
           />
 
           <PasswordInput
             label="Confirm Password:"
             placeholder="Password"
-            styles={{
-              label: { color: "#ffebbca0", marginBottom: "16px" },
-              innerInput: { color: "#ffffff" },
-              input: {
-                backgroundColor: "rgba(255, 255, 255, 0.05)",
-                borderColor: "rgba(255, 255, 255, 0.2)",
-                borderRadius: "6px",
-              },
-            }}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.currentTarget.value)}
+            error={submitted && mismatch}
+            styles={inputStyles}
           />
+
+          {submitted && tooShort && (
+            <Text c="red.4" size="xs">
+              Password kam az kam 8 characters ka ho.
+            </Text>
+          )}
+          {submitted && !tooShort && mismatch && (
+            <Text c="red.4" size="xs">
+              Dono passwords match nahi karte.
+            </Text>
+          )}
+          {errorMsg && (
+            <Text c="red.4" size="xs">
+              {errorMsg}
+            </Text>
+          )}
 
           <Button
             fullWidth
@@ -60,7 +118,8 @@ function ResetPassword() {
             radius="md"
             size="md"
             style={{ fontWeight: 600 }}
-            onClick={() => navigate("/")}
+            onClick={handleUpdate}
+            loading={loading}
           >
             Update Password
           </Button>

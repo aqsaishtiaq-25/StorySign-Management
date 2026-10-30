@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -16,8 +16,6 @@ import {
 import { MdSearch } from "react-icons/md";
 
 import {
-  FiTrendingUp,
-  FiTrendingDown,
   FiFilter,
   FiUsers,
   FiUser,
@@ -29,135 +27,80 @@ import {
 import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
 import authorImg from "../assets/Author-image.png";
+import { getUsers } from "../api";
+import type { ApiUser } from "../api";
 
 export default function AuthorManagement() {
   const navigate = useNavigate();
 
   const innerContainerBg = "#211E1E";
   const accentCardBg = "#FFE8B6";
-
   const numberColor = "#2A1005";
 
-  const greenText = "#1A7F48";
-  const greenBg = "rgba(26, 127, 72, 0.18)";
+  // ---------- Backend data ----------
+  const [users, setUsers] = useState<ApiUser[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [errorMsg, setErrorMsg] = useState<string>("");
+  const [search, setSearch] = useState<string>("");
 
-  const redText = "#C62828";
-  const redBg = "rgba(198, 40, 40, 0.18)";
+  useEffect(() => {
+    getUsers()
+      .then((res) => {
+        const list: ApiUser[] = res.data ?? [];
+        setUsers(list.filter((u) => u.role === "AUTHOR"));
+      })
+      .catch((err) => setErrorMsg((err as Error).message))
+      .finally(() => setLoading(false));
+  }, []);
 
+  const activeCount = users.filter((u) => u.isActive).length;
+  const inactiveCount = users.length - activeCount;
+
+  // Suspended ka backend mein koi field nahi hai, isliye "-"
   const statCards = [
-    {
-      title: "Total Authors",
-      value: "3,248",
-      icon: FiUsers,
-      trend: "+15%",
-      up: true,
-    },
-    {
-      title: "Active Authors",
-      value: "243",
-      icon: FiUserCheck,
-      trend: "-3.5%",
-      up: false,
-    },
+    { title: "Total Authors", value: String(users.length), icon: FiUsers },
+    { title: "Active Authors", value: String(activeCount), icon: FiUserCheck },
     {
       title: "Inactive Authors",
-      value: "3,455",
+      value: String(inactiveCount),
       icon: FiUserMinus,
-      trend: "+15%",
-      up: true,
     },
-    {
-      title: "Suspended Authors",
-      value: "30",
-      icon: FiUserX,
-      trend: "+5%",
-      up: true,
-    },
+    { title: "Suspended Authors", value: "-", icon: FiUserX },
   ];
 
-  const authors = [
-    {
-      id: "0123432",
-      name: "Cordell Edwards",
-      email: "Edwards@gmail.com",
-      plan: "Pro",
-      signedBook: "235",
-      pendingRequest: "23",
-      status: "Active",
-    },
-    {
-      id: "0123433",
-      name: "Cordell Edwards",
-      email: "Edwards@gmail.com",
-      plan: "Pro",
-      signedBook: "235",
-      pendingRequest: "23",
-      status: "Inactive",
-    },
-    {
-      id: "0123434",
-      name: "Cordell Edwards",
-      email: "Edwards@gmail.com",
-      plan: "Pro",
-      signedBook: "235",
-      pendingRequest: "23",
-      status: "Active",
-    },
-    {
-      id: "0123435",
-      name: "Cordell Edwards",
-      email: "Edwards@gmail.com",
-      plan: "Pro",
-      signedBook: "235",
-      pendingRequest: "23",
-      status: "Suspended",
-    },
-    {
-      id: "0123436",
-      name: "Cordell Edwards",
-      email: "Edwards@gmail.com",
-      plan: "Pro",
-      signedBook: "235",
-      pendingRequest: "23",
-      status: "Inactive",
-    },
-    {
-      id: "0123437",
-      name: "Cordell Edwards",
-      email: "Edwards@gmail.com",
-      plan: "Pro",
-      signedBook: "235",
-      pendingRequest: "23",
-      status: "Active",
-    },
-    {
-      id: "0123438",
-      name: "Cordell Edwards",
-      email: "Edwards@gmail.com",
-      plan: "Pro",
-      signedBook: "235",
-      pendingRequest: "23",
-      status: "Inactive",
-    },
-    {
-      id: "0123439",
-      name: "Cordell Edwards",
-      email: "Edwards@gmail.com",
-      plan: "Pro",
-      signedBook: "235",
-      pendingRequest: "23",
-      status: "Suspended",
-    },
-  ];
+  const authors = users
+    .map((u) => ({
+      id: u.id,
+      shortId: u.id.slice(0, 8),
+      name: `${u.firstName} ${u.lastName}`.trim(),
+      email: u.email,
+      avatar: u.avatarUrl || authorImg,
+      plan: "-",
+      signedBook: "-",
+      pendingRequest: "-",
+      status: u.isActive ? "Active" : "Inactive",
+    }))
+    .filter((a) => {
+      const q = search.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q)
+      );
+    });
 
   // ---------- Pagination ----------
-  const PAGE_SIZE = 5; // ek page par 5 rows (design ke mutabiq)
+  const PAGE_SIZE = 5;
   const [page, setPage] = useState(1);
 
-  const totalPages = Math.ceil(authors.length / PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(authors.length / PAGE_SIZE));
   const start = (page - 1) * PAGE_SIZE;
   const currentAuthors = authors.slice(start, start + PAGE_SIZE);
   // --------------------------------
+
+  const openDetail = (id: string) => {
+    sessionStorage.setItem("selectedAuthorId", id);
+    navigate("/author-detail", { state: { id } });
+  };
 
   const getStatusStyle = (status: string) => {
     if (status === "Active") {
@@ -244,30 +187,6 @@ export default function AuthorManagement() {
 
                   <CardIcon size={18} color={numberColor} />
                 </Group>
-
-                <Group gap={6} align="center" mt={8}>
-                  <Box
-                    style={{
-                      width: 20,
-                      height: 20,
-                      borderRadius: "50%",
-                      backgroundColor: card.up ? greenBg : redBg,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    {card.up ? (
-                      <FiTrendingUp size={11} color={greenText} />
-                    ) : (
-                      <FiTrendingDown size={11} color={redText} />
-                    )}
-                  </Box>
-
-                  <Text size="11px" fw={700} c={card.up ? greenText : redText}>
-                    {card.trend}
-                  </Text>
-                </Group>
               </Box>
             );
           })}
@@ -281,6 +200,11 @@ export default function AuthorManagement() {
           <Group gap={16}>
             <TextInput
               placeholder="Search"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.currentTarget.value);
+                setPage(1);
+              }}
               leftSection={<MdSearch size={17} color="#D0D0D0" />}
               styles={{
                 input: {
@@ -319,148 +243,171 @@ export default function AuthorManagement() {
         </Flex>
 
         <Box style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-          <Table
-            verticalSpacing={8}
-            horizontalSpacing={0}
-            style={{
-              color: "#CCCCCC",
-              fontSize: "12px",
-              width: "100%",
-              tableLayout: "fixed",
-            }}
-          >
-            <Table.Thead>
-              <Table.Tr style={{ borderBottom: "none" }}>
-                <Table.Th style={{ ...thStyle, width: "10%" }}>ID</Table.Th>
-                <Table.Th style={{ ...thStyle, width: "22%" }}>
-                  Profile
-                </Table.Th>
-                <Table.Th style={{ ...thStyle, width: "10%" }}>Plan</Table.Th>
-                <Table.Th style={{ ...thStyle, width: "14%" }}>
-                  Signed Book
-                </Table.Th>
-                <Table.Th style={{ ...thStyle, width: "17%" }}>
-                  Pending Request
-                </Table.Th>
-                <Table.Th style={{ ...thStyle, width: "12%" }}>Status</Table.Th>
-                <Table.Th
-                  style={{
-                    ...thStyle,
-                    width: "15%",
-                    textAlign: "right",
-                    paddingRight: 8,
-                  }}
-                >
-                  Action
-                </Table.Th>
-              </Table.Tr>
-            </Table.Thead>
+          {loading && (
+            <Text c="#E0E0E0" size="14px">
+              Loading authors...
+            </Text>
+          )}
 
-            <Table.Tbody>
-              {currentAuthors.map((author) => (
-                <Table.Tr key={author.id} style={{ borderBottom: "none" }}>
-                  <Table.Td c="#E0E0E0" py={12} style={tdStyle}>
-                    {author.id}
-                  </Table.Td>
+          {errorMsg && (
+            <Text c="red.4" size="14px">
+              {errorMsg}
+            </Text>
+          )}
 
-                  <Table.Td py={12} style={tdStyle}>
-                    <Group
-                      gap={8}
-                      wrap="nowrap"
-                      onClick={() => navigate("/author-detail")}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <Avatar src={authorImg} size={34} radius="xl" />
+          {!loading && !errorMsg && authors.length === 0 && (
+            <Text c="#E0E0E0" size="14px">
+              No authors found.
+            </Text>
+          )}
 
-                      <Box>
-                        <Text
-                          size="12px"
-                          c="#FFFFFF"
-                          fw={500}
-                          style={{ lineHeight: 1.25 }}
-                        >
-                          {author.name}
-                        </Text>
-
-                        <Text
-                          size="10px"
-                          c="#C9C9C9"
-                          style={{ lineHeight: 1.25 }}
-                        >
-                          {author.email}
-                        </Text>
-                      </Box>
-                    </Group>
-                  </Table.Td>
-
-                  <Table.Td
-                    c="#FFFFFF"
-                    fw={500}
-                    py={12}
-                    style={{ ...tdStyle, fontSize: "14px" }}
+          {!loading && !errorMsg && authors.length > 0 && (
+            <Table
+              verticalSpacing={8}
+              horizontalSpacing={0}
+              style={{
+                color: "#CCCCCC",
+                fontSize: "12px",
+                width: "100%",
+                tableLayout: "fixed",
+              }}
+            >
+              <Table.Thead>
+                <Table.Tr style={{ borderBottom: "none" }}>
+                  <Table.Th style={{ ...thStyle, width: "10%" }}>ID</Table.Th>
+                  <Table.Th style={{ ...thStyle, width: "22%" }}>
+                    Profile
+                  </Table.Th>
+                  <Table.Th style={{ ...thStyle, width: "10%" }}>Plan</Table.Th>
+                  <Table.Th style={{ ...thStyle, width: "14%" }}>
+                    Signed Book
+                  </Table.Th>
+                  <Table.Th style={{ ...thStyle, width: "17%" }}>
+                    Pending Request
+                  </Table.Th>
+                  <Table.Th style={{ ...thStyle, width: "12%" }}>
+                    Status
+                  </Table.Th>
+                  <Table.Th
+                    style={{
+                      ...thStyle,
+                      width: "15%",
+                      textAlign: "right",
+                      paddingRight: 8,
+                    }}
                   >
-                    {author.plan}
-                  </Table.Td>
-
-                  <Table.Td c="#FFFFFF" fw={500} py={12} style={tdStyle}>
-                    {author.signedBook}
-                  </Table.Td>
-
-                  <Table.Td c="#FFFFFF" fw={500} py={12} style={tdStyle}>
-                    {author.pendingRequest}
-                  </Table.Td>
-
-                  <Table.Td py={12} style={tdStyle}>
-                    <Box
-                      px={10}
-                      py={4}
-                      style={{
-                        ...getStatusStyle(author.status),
-                        borderRadius: "6px",
-                        display: "inline-block",
-                        fontSize: "10px",
-                        fontWeight: 500,
-                        lineHeight: 1.1,
-                      }}
-                    >
-                      {author.status}
-                    </Box>
-                  </Table.Td>
-
-                  <Table.Td py={12} style={tdStyle}>
-                    <Group gap={8} justify="flex-end" wrap="nowrap">
-                      <ActionIcon
-                        variant="transparent"
-                        size={32}
-                        radius="xl"
-                        style={actionBtnStyle}
-                      >
-                        <FiUser size={15} />
-                      </ActionIcon>
-
-                      <ActionIcon
-                        variant="transparent"
-                        size={32}
-                        radius="xl"
-                        style={actionBtnStyle}
-                      >
-                        <FiUserCheck size={15} />
-                      </ActionIcon>
-
-                      <ActionIcon
-                        variant="transparent"
-                        size={32}
-                        radius="xl"
-                        style={actionBtnStyle}
-                      >
-                        <FiUserX size={15} />
-                      </ActionIcon>
-                    </Group>
-                  </Table.Td>
+                    Action
+                  </Table.Th>
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+
+              <Table.Tbody>
+                {currentAuthors.map((author) => (
+                  <Table.Tr key={author.id} style={{ borderBottom: "none" }}>
+                    <Table.Td c="#E0E0E0" py={12} style={tdStyle}>
+                      {author.shortId}
+                    </Table.Td>
+
+                    <Table.Td py={12} style={tdStyle}>
+                      <Group
+                        gap={8}
+                        wrap="nowrap"
+                        onClick={() => openDetail(author.id)}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <Avatar src={author.avatar} size={34} radius="xl" />
+
+                        <Box>
+                          <Text
+                            size="12px"
+                            c="#FFFFFF"
+                            fw={500}
+                            style={{ lineHeight: 1.25 }}
+                          >
+                            {author.name}
+                          </Text>
+
+                          <Text
+                            size="10px"
+                            c="#C9C9C9"
+                            style={{ lineHeight: 1.25 }}
+                          >
+                            {author.email}
+                          </Text>
+                        </Box>
+                      </Group>
+                    </Table.Td>
+
+                    <Table.Td
+                      c="#FFFFFF"
+                      fw={500}
+                      py={12}
+                      style={{ ...tdStyle, fontSize: "14px" }}
+                    >
+                      {author.plan}
+                    </Table.Td>
+
+                    <Table.Td c="#FFFFFF" fw={500} py={12} style={tdStyle}>
+                      {author.signedBook}
+                    </Table.Td>
+
+                    <Table.Td c="#FFFFFF" fw={500} py={12} style={tdStyle}>
+                      {author.pendingRequest}
+                    </Table.Td>
+
+                    <Table.Td py={12} style={tdStyle}>
+                      <Box
+                        px={10}
+                        py={4}
+                        style={{
+                          ...getStatusStyle(author.status),
+                          borderRadius: "6px",
+                          display: "inline-block",
+                          fontSize: "10px",
+                          fontWeight: 500,
+                          lineHeight: 1.1,
+                        }}
+                      >
+                        {author.status}
+                      </Box>
+                    </Table.Td>
+
+                    <Table.Td py={12} style={tdStyle}>
+                      <Group gap={8} justify="flex-end" wrap="nowrap">
+                        <ActionIcon
+                          variant="transparent"
+                          size={32}
+                          radius="xl"
+                          style={actionBtnStyle}
+                          onClick={() => openDetail(author.id)}
+                        >
+                          <FiUser size={15} />
+                        </ActionIcon>
+
+                        <ActionIcon
+                          variant="transparent"
+                          size={32}
+                          radius="xl"
+                          style={actionBtnStyle}
+                        >
+                          <FiUserCheck size={15} />
+                        </ActionIcon>
+
+                        <ActionIcon
+                          variant="transparent"
+                          size={32}
+                          radius="xl"
+                          style={actionBtnStyle}
+                        >
+                          <FiUserX size={15} />
+                        </ActionIcon>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          )}
         </Box>
       </Box>
 

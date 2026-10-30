@@ -1,3 +1,5 @@
+import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Box,
   Flex,
@@ -17,11 +19,37 @@ import ReaderLayout from "./ReaderLayout";
 import authorImg from "../assets/Author-image.png";
 import readerimg from "../assets/Readerimg.png";
 import ebook from "../assets/Ebook-img.png";
+import { getUserById } from "../api";
+import type { ApiUser } from "../api";
 
 export default function AuthorDetailView() {
   const innerContainerBg = "#211E1E";
   const accentCardBg = "#FFE8B6";
 
+  const location = useLocation();
+  const id =
+    (location.state as { id?: string } | null)?.id ??
+    sessionStorage.getItem("selectedAuthorId") ??
+    "";
+
+  const [author, setAuthor] = useState<ApiUser | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string>("");
+
+  useEffect(() => {
+    if (!id) {
+      setErrorMsg("No author selected.");
+      return;
+    }
+    getUserById(id)
+      .then((res) => setAuthor(res.data ?? res))
+      .catch((err) => setErrorMsg((err as Error).message));
+  }, [id]);
+
+  const fullName = author
+    ? `${author.firstName} ${author.lastName}`.trim()
+    : "";
+
+  // Abhi in requests ka backend endpoint nahi mila, isliye yeh static hain
   const recentRequests = [
     { reader: "Cordell Edwards", date: "23 June, 2026", status: "Pending" },
     { reader: "Cordell Edwards", date: "23 June, 2026", status: "Pending" },
@@ -83,47 +111,41 @@ export default function AuthorDetailView() {
         }}
       >
         <Flex align="center" gap={18} mb={24} style={{ flexShrink: 0 }}>
-          <Avatar src={readerimg} size={76} radius="50%" />
+          <Avatar src={author?.avatarUrl || readerimg} size={76} radius="50%" />
 
           <Box>
             <Group gap={10} align="center" mb={4}>
               <Text size="22px" fw={500} c={accentCardBg}>
-                Alexa Rawles
+                {fullName}
               </Text>
 
-              <Box
-                style={{
-                  padding: "3px 10px",
-                  borderRadius: "6px",
-                  border: "1px solid rgba(255,232,182,0.75)",
-                  backgroundColor: "rgba(255,232,182,0.18)",
-                  color: accentCardBg,
-                  fontSize: "10px",
-                  fontWeight: 500,
-                  lineHeight: 1.2,
-                }}
-              >
-                Author
-              </Box>
-
-              <Box
-                style={{
-                  padding: "4px 11px",
-                  borderRadius: "6px",
-                  backgroundColor: "#91451F",
-                  color: accentCardBg,
-                  fontSize: "10px",
-                  fontWeight: 500,
-                  lineHeight: 1.2,
-                }}
-              >
-                Starter
-              </Box>
+              {author && (
+                <Box
+                  style={{
+                    padding: "3px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,232,182,0.75)",
+                    backgroundColor: "rgba(255,232,182,0.18)",
+                    color: accentCardBg,
+                    fontSize: "10px",
+                    fontWeight: 500,
+                    lineHeight: 1.2,
+                  }}
+                >
+                  Author
+                </Box>
+              )}
             </Group>
 
             <Text size="13px" c="rgba(255,232,182,0.75)">
-              alexarawles@gmail.com
+              {author?.email}
             </Text>
+
+            {errorMsg && (
+              <Text size="13px" c="red.4" mt={4}>
+                {errorMsg}
+              </Text>
+            )}
           </Box>
         </Flex>
 
@@ -207,7 +229,6 @@ export default function AuthorDetailView() {
             <Table.Tbody>
               {recentRequests.map((request, index) => (
                 <Table.Tr key={index} style={{ borderBottom: "none" }}>
-                  {/* READER */}
                   <Table.Td py={12} style={tdStyle}>
                     <Group gap={9} wrap="nowrap">
                       <Avatar src={authorImg} size={34} radius="xl" />

@@ -1,10 +1,34 @@
+import { useState } from "react";
 import { Button, Paper, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useNavigate } from "react-router-dom";
 
 import AuthLayout from "./AuthLayout";
+import { forgotPassword } from "../api";
 
 function ForgotPassword() {
   const navigate = useNavigate();
+
+  const [email, setEmail] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const handleSend = async () => {
+    setSubmitted(true);
+    setErrorMsg("");
+    if (!email.trim()) return;
+
+    try {
+      setLoading(true);
+      await forgotPassword(email.trim());
+      sessionStorage.setItem("resetEmail", email.trim());
+      navigate("/otp");
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <AuthLayout>
@@ -32,12 +56,15 @@ function ForgotPassword() {
             mt={18}
           >
             Don't worry! Enter your registered email address, and we'll send you
-            a link to reset your password.
+            a 6-digit OTP code to reset your password.
           </Text>
 
           <TextInput
             label="Email:"
             placeholder="johnsmith@gmail.com"
+            value={email}
+            onChange={(e) => setEmail(e.currentTarget.value)}
+            error={submitted && !email.trim()}
             styles={{
               label: { color: "#ffebbc", marginBottom: "16px" },
               input: {
@@ -49,6 +76,12 @@ function ForgotPassword() {
             }}
           />
 
+          {errorMsg && (
+            <Text c="red.4" size="xs">
+              {errorMsg}
+            </Text>
+          )}
+
           <Button
             fullWidth
             mt="20"
@@ -57,9 +90,10 @@ function ForgotPassword() {
             radius="md"
             size="md"
             style={{ fontWeight: 600 }}
-            onClick={() => navigate("/otp")}
+            onClick={handleSend}
+            loading={loading}
           >
-            LOGIN
+            SEND OTP
           </Button>
         </Stack>
       </Paper>

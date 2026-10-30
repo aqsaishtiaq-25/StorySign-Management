@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Box,
   Button,
@@ -10,9 +11,56 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import AuthLayout from "./AuthLayout";
+import { forgotPassword, verifyOtp } from "../api";
 
 function OTPVerification() {
   const navigate = useNavigate();
+  const email = sessionStorage.getItem("resetEmail") ?? "";
+
+  const [otp, setOtp] = useState("");
+  const [seconds, setSeconds] = useState(60);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  // email ke baghair is page ka koi faida nahi
+  useEffect(() => {
+    if (!email) navigate("/forgot-password", { replace: true });
+  }, [email, navigate]);
+
+  // resend ka countdown
+  useEffect(() => {
+    if (seconds <= 0) return;
+    const t = setTimeout(() => setSeconds((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [seconds]);
+
+  const handleVerify = async () => {
+    setErrorMsg("");
+    if (otp.length !== 6) {
+      setErrorMsg("6-digit OTP daalein.");
+      return;
+    }
+    try {
+      setLoading(true);
+      const data = await verifyOtp(email, otp);
+      sessionStorage.setItem("resetToken", data.resetToken);
+      navigate("/reset-password");
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setErrorMsg("");
+    try {
+      await forgotPassword(email);
+      setSeconds(60);
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    }
+  };
 
   return (
     <AuthLayout>
@@ -35,7 +83,7 @@ function OTPVerification() {
           <Text size="xs" c="rgba(255, 235, 188, 0.6)" ta="center" mt={20}>
             We've sent a 6-digit verification code to
             <br />
-            admin@storysign.com
+            {email}
           </Text>
 
           <Box w="100%">
@@ -48,6 +96,8 @@ function OTPVerification() {
               size="md"
               type="number"
               placeholder=""
+              value={otp}
+              onChange={setOtp}
               styles={{
                 input: {
                   backgroundColor: "rgba(255, 255, 255, 0.05)",
@@ -59,8 +109,28 @@ function OTPVerification() {
             />
           </Box>
 
-          <Text size="xs" c="rgba(255, 235, 188, 0.6)" ta="center" mt={19}>
-            Didn't receive the code? Resend in 36s
+          {errorMsg && (
+            <Text c="red.4" size="xs">
+              {errorMsg}
+            </Text>
+          )}
+
+          <Text size="xs" c="rgba(255, 235, 188, 0.6)" ta="center" mt={8}>
+            Didn't receive the code?{" "}
+            {seconds > 0 ? (
+              `Resend in ${seconds}s`
+            ) : (
+              <Text
+                span
+                size="xs"
+                c="#ffebbc"
+                fw={700}
+                style={{ cursor: "pointer" }}
+                onClick={handleResend}
+              >
+                Resend now
+              </Text>
+            )}
           </Text>
 
           <Button
@@ -71,7 +141,8 @@ function OTPVerification() {
             radius="md"
             size="md"
             style={{ fontWeight: 600 }}
-            onClick={() => navigate("/reset-password")}
+            onClick={handleVerify}
+            loading={loading}
           >
             Verify OTP
           </Button>
