@@ -75,7 +75,7 @@ function App() {
 
           <Route path="/ebooks" element={<Ebook />} />
 
-          <Route path="/ebook-detail" element={<EbookDetails />} />
+          <Route path="/ebook-detail/:id" element={<EbookDetails />} />
 
           <Route path="/autograph" element={<Autograph />} />
 

@@ -132,3 +132,41 @@ export async function resetPassword(
   });
   return handle(res, "Could not reset password");
 }
+
+// ---------- Ebooks ----------
+
+export type EbookStats = {
+  total: number;
+  signed: number;
+  unsigned: number;
+  rejected: number;
+};
+
+export async function getEbookStats(): Promise<EbookStats> {
+  const res = await fetch(`${BASE_URL}/ebooks/stats`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load ebook stats");
+}
+
+export async function getEbooks(page = 1, limit = 100) {
+  const res = await fetch(`${BASE_URL}/ebooks?page=${page}&limit=${limit}`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load ebooks");
+}
+
+export async function getEbookById(id: string) {
+  const res = await fetch(`${BASE_URL}/ebooks/${id}`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load ebook");
+}
+
+export async function deleteEbook(id: string) {
+  const res = await fetch(`${BASE_URL}/ebooks/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not delete ebook");
+}
