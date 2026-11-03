@@ -170,3 +170,36 @@ export async function deleteEbook(id: string) {
   });
   return handle(res, "Could not delete ebook");
 }
+
+
+export type AutographStats = Record<string, number | undefined>;
+
+export async function getAutographRequests(page = 1, limit = 5) {
+  const res = await fetch(
+    `${BASE_URL}/autograph-requests?page=${page}&limit=${limit}`,
+    { headers: authHeaders() },
+  );
+  return handle(res, "Could not load autograph requests");
+}
+
+export async function getAutographRequestById(id: string) {
+  const res = await fetch(`${BASE_URL}/autograph-requests/${id}`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load autograph request");
+}
+
+export async function getAutographRequestStats(): Promise<AutographStats> {
+  const res = await fetch(`${BASE_URL}/autograph-requests/stats`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load autograph request stats");
+}
+
+export async function deleteAutographRequest(id: string) {
+  const res = await fetch(`${BASE_URL}/autograph-requests/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not delete autograph request");
+}

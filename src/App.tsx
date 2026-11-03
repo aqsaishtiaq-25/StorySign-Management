@@ -63,7 +63,7 @@ function App() {
 
           <Route path="/requests" element={<RequestsManagement />} />
 
-          <Route path="/request-detail" element={<RequestDetailView />} />
+          <Route path="/request-detail/:id" element={<RequestDetailView />} />
 
           <Route path="/subscription-plans" element={<SubscriptionPlans />} />
 

@@ -13,7 +13,12 @@ import { FaTrash } from "react-icons/fa";
 
 import ReaderLayout from "./ReaderLayout";
 import bookImg from "../assets/Ebook-img.png";
-import { deleteEbook, getEbookById, getUserById } from "../api";
+import {
+  deleteAutographRequest,
+  deleteEbook,
+  getEbookById,
+  getUserById,
+} from "../api";
 
 function formatDate(value: unknown) {
   if (!value) return "-";
@@ -98,12 +103,24 @@ export default function EbookDetails() {
     };
   }, [id]);
 
+  // Pehle ebook ki autograph requests delete, phir ebook
   const handleDelete = async () => {
     if (!id) return;
-    if (!window.confirm("Are you sure you want to delete this ebook?")) return;
+    if (
+      !window.confirm(
+        "This will also delete the autograph request(s) of this ebook. Continue?",
+      )
+    )
+      return;
 
     try {
       setDeleting(true);
+
+      const requests: any[] = ebook?.autographRequests ?? [];
+      for (const r of requests) {
+        await deleteAutographRequest(r.id);
+      }
+
       await deleteEbook(id);
       navigate(-1);
     } catch (err) {
