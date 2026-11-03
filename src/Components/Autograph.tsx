@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Box,
   Button,
   Flex,
+  Loader,
   Modal,
   Stack,
   Table,
@@ -16,6 +17,11 @@ import { MdOutlineVerified } from "react-icons/md";
 
 import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
+import {
+  getAutographFeeHistory,
+  getCurrentAutographFee,
+  updateAutographFee,
+} from "../api";
 
 /**
  * SIZING
@@ -68,82 +74,181 @@ const C = {
 };
 
 type HistoryRow = {
-  id: number;
+  id: string;
   fee: string;
   updatedBy: string;
   date: string;
 };
 
-// 10 rows => PAGE_SIZE 4 par 3 pages banenge (4, 4, 2)
-const initialHistory: HistoryRow[] = Array.from({ length: 10 }, (_, i) => ({
-  id: i + 1,
-  fee: "$9/m",
-  updatedBy: "Fee has been updated by Admin (Lisa)",
-  date: "23 Jul, 2026",
-}));
+function formatDate(value: unknown) {
+  if (!value) return "-";
+  const d = new Date(String(value));
+  if (isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// History ka ek item -> table ki row
+function toHistoryRow(h: any, index: number): HistoryRow {
+  // Fee: pehle jaane-pehchane names, phir koi bhi key jis ke naam mein fee/amount/price/value ho
+  let amount =
+    h.amount ??
+    h.fee ??
+    h.newAmount ??
+    h.newFee ??
+    h.autographFee ??
+    h.price ??
+    h.value;
+
+  if (amount === undefined || amount === null) {
+    const key = Object.keys(h).find(
+      (k) => /fee|amount|price|value/i.test(k) && typeof h[k] !== "object",
+    );
+    if (key) amount = h[key];
+  }
+
+  // Updated By: backend text bheje to wahi dikhao, warna naam se banao
+  const by = h.updatedBy ?? h.admin ?? h.user;
+  let updatedBy = "Fee has been updated by Admin";
+
+  if (typeof by === "string" && by.trim()) {
+    updatedBy = by.trim();
+  } else if (by && typeof by === "object") {
+    const name = `${by.firstName ?? ""} ${by.lastName ?? ""}`.trim();
+    if (name) updatedBy = `Fee has been updated by Admin (${name})`;
+  }
+
+  return {
+    id: String(h.id ?? index),
+    fee: amount !== undefined && amount !== null ? `$${amount}/m` : "-",
+    updatedBy,
+    date: formatDate(h.createdAt ?? h.updatedAt ?? h.date),
+  };
+}
 
 export default function Autograph() {
   // "list" = screen 1, "edit" = screen 2, success popup = screen 3
   const [view, setView] = useState<"list" | "edit">("list");
   const [successOpen, setSuccessOpen] = useState<boolean>(false);
 
-  const [currentFee, setCurrentFee] = useState<string>("$10");
-  const [history, setHistory] = useState<HistoryRow[]>(initialHistory);
+  const [currentFee, setCurrentFee] = useState<string>("-");
+  const [rows, setRows] = useState<HistoryRow[]>([]);
+  const [serverPages, setServerPages] = useState<number | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>("");
 
+  const [reloadKey, setReloadKey] = useState<number>(0);
   const [tableSearch, setTableSearch] = useState<string>("");
   const [activePage, setActivePage] = useState<number>(1);
   const [fee, setFee] = useState<string>("");
+  const [saving, setSaving] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string>("");
 
+  // Current fee: shuru mein aur har update ke baad
+  useEffect(() => {
+    getCurrentAutographFee()
+      .then((res: any) => {
+        const amount = res?.amount ?? res?.data?.amount;
+        setCurrentFee(amount !== undefined ? `$${amount}` : "-");
+      })
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Could not load fee"),
+      );
+  }, [reloadKey]);
+
+  // History: har page change par aur har update ke baad
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const res: any = await getAutographFeeHistory(activePage, PAGE_SIZE);
+        const list: any[] = Array.isArray(res)
+          ? res
+          : (res.data ?? res.items ?? res.history ?? []);
+
+        if (!cancelled) {
+          setRows(list.map(toHistoryRow));
+          // Backend pagination bheje to wahi, warna frontend par pages banayenge
+          setServerPages(res?.pagination?.totalPages ?? null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Something went wrong");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activePage, reloadKey]);
+
+  // Search sirf current rows par chalta hai
   const filteredHistory = useMemo(() => {
     const query = tableSearch.trim().toLowerCase();
 
-    return history.filter(
+    return rows.filter(
       (row) =>
         !query ||
         `${row.fee} ${row.updatedBy} ${row.date}`.toLowerCase().includes(query),
     );
-  }, [tableSearch, history]);
+  }, [tableSearch, rows]);
 
   // ---------- Pagination ----------
-  const totalPages = Math.max(1, Math.ceil(filteredHistory.length / PAGE_SIZE));
-  const currentPage = Math.min(activePage, totalPages);
+  const totalPages =
+    serverPages ?? Math.max(1, Math.ceil(filteredHistory.length / PAGE_SIZE));
+  const currentPage = serverPages
+    ? activePage
+    : Math.min(activePage, totalPages);
   const start = (currentPage - 1) * PAGE_SIZE;
-  const visibleHistory = filteredHistory.slice(start, start + PAGE_SIZE);
+  const visibleHistory = serverPages
+    ? filteredHistory
+    : filteredHistory.slice(start, start + PAGE_SIZE);
   // --------------------------------
 
   const cleanFee = fee.replace("$", "").trim();
-  const canSubmit = cleanFee !== "" && !Number.isNaN(Number(cleanFee));
+  const canSubmit =
+    cleanFee !== "" && !Number.isNaN(Number(cleanFee)) && Number(cleanFee) > 0;
 
   const openEdit = () => {
     setFee("");
+    setSaveError("");
     setView("edit");
   };
 
-  const handleUpdate = () => {
-    if (!canSubmit) return;
-    // TODO: call your API here with the new fee
-    setSuccessOpen(true);
+  const handleUpdate = async () => {
+    if (!canSubmit || saving) return;
+
+    try {
+      setSaving(true);
+      setSaveError("");
+      await updateAutographFee(Number(cleanFee));
+      setSuccessOpen(true);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Could not update autograph fee",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleOkay = () => {
-    // apply the new fee, add a history row, go back to screen 1
-    setCurrentFee(`$${cleanFee}`);
-    setHistory((prev) => [
-      {
-        id: Date.now(),
-        fee: `$${cleanFee}/m`,
-        updatedBy: "Fee has been updated by Admin (John)",
-        date: new Date().toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        }),
-      },
-      ...prev,
-    ]);
-    setActivePage(1); // nayi row sab se upar aati hai, isliye page 1 par wapas
+    // naya fee aur history dobara mangwayenge, aur list par wapas
     setSuccessOpen(false);
     setView("list");
+    setActivePage(1);
+    setReloadKey((k) => k + 1);
   };
 
   return (
@@ -263,10 +368,7 @@ export default function Autograph() {
                   <TextInput
                     placeholder="Search"
                     value={tableSearch}
-                    onChange={(e) => {
-                      setTableSearch(e.currentTarget.value);
-                      setActivePage(1); // search badalne par page 1 par wapas
-                    }}
+                    onChange={(e) => setTableSearch(e.currentTarget.value)}
                     leftSection={<Ico icon={FaSearch} n={13} min={9} />}
                     styles={{
                       root: { width: u(296) },
@@ -315,75 +417,96 @@ export default function Autograph() {
                   overflowX: "auto",
                 }}
               >
-                <Table
-                  withRowBorders={false}
-                  verticalSpacing={0}
-                  horizontalSpacing={0}
-                  styles={{
-                    table: {
-                      width: "100%",
-                      minWidth: 520,
-                      tableLayout: "fixed",
-                      borderCollapse: "collapse",
-                    },
-                    th: {
-                      height: u(34),
-                      padding: 0,
-                      color: C.cream,
-                      fontSize: uMin(27, 13),
-                      fontWeight: 600,
-                      whiteSpace: "nowrap",
-                      textAlign: "left",
-                      borderBottom: "none",
-                    },
-                    td: {
-                      height: u(97),
-                      padding: 0,
-                      verticalAlign: "middle",
-                      whiteSpace: "nowrap",
-                      borderTop: "none",
-                      borderBottom: `1px solid ${C.border}`,
-                    },
-                  }}
-                >
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th w="42.7%">Autograph Fee</Table.Th>
-                      <Table.Th w="46.9%">Updated By</Table.Th>
-                      <Table.Th w="10.4%" style={{ textAlign: "center" }}>
-                        Date
-                      </Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-
-                  <Table.Tbody>
-                    {visibleHistory.map((row) => (
-                      <Table.Tr key={row.id}>
-                        <Table.Td>
-                          <Text c="#B85A2A" style={{ fontSize: uMin(22, 12) }}>
-                            {row.fee}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text c={C.white} style={{ fontSize: uMin(17, 10) }}>
-                            {row.updatedBy}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text
-                            c={C.white}
-                            ta="center"
-                            style={{ fontSize: uMin(17, 10) }}
-                          >
-                            {row.date}
-                          </Text>
-                        </Table.Td>
+                {loading ? (
+                  <Flex justify="center" py="xl">
+                    <Loader color={C.cream} size="sm" />
+                  </Flex>
+                ) : error ? (
+                  <Text
+                    ta="center"
+                    c="#FF6B6B"
+                    py="xl"
+                    style={{ fontSize: uMin(18, 11) }}
+                  >
+                    {error}
+                  </Text>
+                ) : (
+                  <Table
+                    withRowBorders={false}
+                    verticalSpacing={0}
+                    horizontalSpacing={0}
+                    styles={{
+                      table: {
+                        width: "100%",
+                        minWidth: 520,
+                        tableLayout: "fixed",
+                        borderCollapse: "collapse",
+                      },
+                      th: {
+                        height: u(34),
+                        padding: 0,
+                        color: C.cream,
+                        fontSize: uMin(27, 13),
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        textAlign: "left",
+                        borderBottom: "none",
+                      },
+                      td: {
+                        height: u(97),
+                        padding: 0,
+                        verticalAlign: "middle",
+                        whiteSpace: "nowrap",
+                        borderTop: "none",
+                        borderBottom: `1px solid ${C.border}`,
+                      },
+                    }}
+                  >
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th w="42.7%">Autograph Fee</Table.Th>
+                        <Table.Th w="46.9%">Updated By</Table.Th>
+                        <Table.Th w="10.4%" style={{ textAlign: "center" }}>
+                          Date
+                        </Table.Th>
                       </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
+                    </Table.Thead>
 
-                {filteredHistory.length === 0 && (
+                    <Table.Tbody>
+                      {visibleHistory.map((row) => (
+                        <Table.Tr key={row.id}>
+                          <Table.Td>
+                            <Text
+                              c="#B85A2A"
+                              style={{ fontSize: uMin(22, 12) }}
+                            >
+                              {row.fee}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td>
+                            <Text
+                              c={C.white}
+                              style={{ fontSize: uMin(17, 10) }}
+                            >
+                              {row.updatedBy}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td>
+                            <Text
+                              c={C.white}
+                              ta="center"
+                              style={{ fontSize: uMin(17, 10) }}
+                            >
+                              {row.date}
+                            </Text>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                )}
+
+                {!loading && !error && visibleHistory.length === 0 && (
                   <Text
                     ta="center"
                     c={C.muted}
@@ -450,11 +573,18 @@ export default function Autograph() {
               }}
             />
 
+            {saveError && (
+              <Text c="#FF6B6B" mt={8} style={{ fontSize: uMin(16, 11) }}>
+                {saveError}
+              </Text>
+            )}
+
             <Flex style={{ marginTop: u(119), gap: u(24), flexShrink: 0 }}>
               <Button
                 className="action"
                 onClick={handleUpdate}
                 disabled={!canSubmit}
+                loading={saving}
                 w={u(249)}
                 h={u(51)}
                 radius={u(3)}

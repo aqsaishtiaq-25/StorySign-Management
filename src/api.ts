@@ -203,3 +203,29 @@ export async function deleteAutographRequest(id: string) {
   });
   return handle(res, "Could not delete autograph request");
 }
+
+const FEE_CURRENT_URL = `${BASE_URL}/autograph-fee`;
+const FEE_UPDATE_URL = `${BASE_URL}/autograph-fee`;
+const FEE_HISTORY_URL = `${BASE_URL}/autograph-fee/history`;
+
+export async function getCurrentAutographFee(): Promise<{ amount: number }> {
+  const res = await fetch(FEE_CURRENT_URL, { headers: authHeaders() });
+  return handle(res, "Could not load autograph fee");
+}
+
+export async function getAutographFeeHistory(page = 1, limit = 5) {
+  const res = await fetch(`${FEE_HISTORY_URL}?page=${page}&limit=${limit}`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load autograph fee history");
+}
+
+// Body ki field ka naam Postman ke "Update Autograph fee" ki body se match karein
+export async function updateAutographFee(amount: number) {
+  const res = await fetch(FEE_UPDATE_URL, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify({ amount }),
+  });
+  return handle(res, "Could not update autograph fee");
+}
