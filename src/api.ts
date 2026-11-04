@@ -229,3 +229,52 @@ export async function updateAutographFee(amount: number) {
   });
   return handle(res, "Could not update autograph fee");
 }
+
+// ---------- Dashboard ----------
+const DASH_BASE = `${BASE_URL}/admin/dashboard`;
+
+export async function getDashboardOverview() {
+  const res = await fetch(`${DASH_BASE}/overview`, { headers: authHeaders() });
+  return handle(res, "Could not load dashboard overview");
+}
+
+export async function getDashboardUserGrowth(months = 6) {
+  const res = await fetch(`${DASH_BASE}/user-growth?months=${months}`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load user growth");
+}
+
+export async function getDashboardRevenueAnalytics() {
+  const res = await fetch(`${DASH_BASE}/revenue-analytics`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load revenue analytics");
+}
+
+// ---------- Support Queries ----------
+const SQ_URL = `${BASE_URL}/support-queries`;
+
+export type SupportQueryStats = {
+  totalQueries?: number;
+  pendingQueries?: number;
+  resolutionRate?: number;
+  avgResponseTimeMinutes?: number;
+};
+
+export async function getSupportQueries(page = 1, limit = 5) {
+  const res = await fetch(`${SQ_URL}?page=${page}&limit=${limit}`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load support queries");
+}
+
+export async function getSupportQueryStats(): Promise<SupportQueryStats> {
+  const res = await fetch(`${SQ_URL}/stats`, { headers: authHeaders() });
+  return handle(res, "Could not load support query stats");
+}
+
+export async function getSupportQueryById(id: string) {
+  const res = await fetch(`${SQ_URL}/${id}`, { headers: authHeaders() });
+  return handle(res, "Could not load support query");
+}
