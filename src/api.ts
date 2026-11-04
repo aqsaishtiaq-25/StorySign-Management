@@ -230,6 +230,7 @@ export async function updateAutographFee(amount: number) {
   return handle(res, "Could not update autograph fee");
 }
 
+
 // ---------- Dashboard ----------
 const DASH_BASE = `${BASE_URL}/admin/dashboard`;
 
@@ -277,4 +278,70 @@ export async function getSupportQueryStats(): Promise<SupportQueryStats> {
 export async function getSupportQueryById(id: string) {
   const res = await fetch(`${SQ_URL}/${id}`, { headers: authHeaders() });
   return handle(res, "Could not load support query");
+
+}
+
+export type ApiPolicy = {
+  id: string;
+  title: string;
+  content: string;
+  type: string;
+  isPublished: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function getPolicies(page = 1, limit = 100) {
+  const res = await fetch(`${BASE_URL}/policies?page=${page}&limit=${limit}`, {
+    headers: authHeaders(),
+    cache: "no-store", // purana (cached) jawab dobara na aaye
+  });
+  return handle(res, "Could not load policies");
+}
+
+export async function getPolicyById(id: string) {
+  const res = await fetch(`${BASE_URL}/policies/${id}`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load policy");
+}
+
+export async function createPolicy(data: {
+  title: string;
+  content: string;
+  type: string;
+  isPublished: boolean;
+}) {
+  const res = await fetch(`${BASE_URL}/policies`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not create policy");
+}
+
+export async function updatePolicy(
+  id: string,
+  data: Partial<{
+    title: string;
+    content: string;
+    type: string;
+    isPublished: boolean;
+  }>,
+) {
+  const res = await fetch(`${BASE_URL}/policies/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not update policy");
+}
+
+export async function deletePolicy(id: string) {
+  const res = await fetch(`${BASE_URL}/policies/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not delete policy");
+
 }

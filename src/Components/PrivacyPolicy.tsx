@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   Flex,
@@ -19,6 +19,13 @@ import { HiOutlineBadgeCheck } from "react-icons/hi";
 
 import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
+import {
+  getPolicies,
+  createPolicy,
+  updatePolicy,
+  deletePolicy as deletePolicyApi,
+} from "../api";
+import type { ApiPolicy } from "../api";
 
 const cream = "#FFE8B6";
 const brown = "#81401F";
@@ -26,78 +33,84 @@ const dark = "#211E1E";
 const inputBg = "#343131";
 const popupBg = "#FFEBBC";
 
+// Filter ke liye chhote harf mein (backend "Privacy" bhejta hai, hum lowercase karke milate hain)
+const POLICY_TYPE = "privacy";
+
 interface Policy {
-  id: number;
+  id: string;
   title: string;
   description: string;
 }
 
-const initialPolicies: Policy[] = [
-  {
-    id: 1,
-    title: "Introduction",
-    description:
-      "StorySign values your privacy and is committed to protecting your personal information. This Privacy Policy explains how we collect, use, store, and protect user data within the StorySign platform.",
-  },
-  {
-    id: 2,
-    title: "Introduction",
-    description:
-      "StorySign We may collect the following information:\nFull name\nEmail address\nProfile information\nPayment-related information\nUploaded ebooks and files\nTransaction history\nCommunication and support requests",
-  },
-  {
-    id: 3,
-    title: "Payment Security",
-    description:
-      "All payment transactions are processed through secure payment gateways. StorySign does not store sensitive payment card details directly on its servers.",
-  },
-  {
-    id: 4,
-    title: "Data Protection",
-    description:
-      "We implement industry-standard security measures to protect user data against unauthorized access, loss, or misuse.",
-  },
-  {
-    id: 5,
-    title: "How We Use Information",
-    description:
-      "Your information is used to: Create and manage accounts, Process payments and signature requests, Process payments and signature requests and Deliver signed ebooks.",
-  },
-  // neeche ki 3 policies sirf page 2 dikhane ke liye hain (asli data mein zaroorat nahi)
-  {
-    id: 6,
-    title: "Data Protection",
-    description:
-      "We implement industry-standard security measures to protect user data against unauthorized access, loss, or misuse.",
-  },
-  {
-    id: 7,
-    title: "Payment Security",
-    description:
-      "All payment transactions are processed through secure payment gateways. StorySign does not store sensitive payment card details directly on its servers.",
-  },
-  {
-    id: 8,
-    title: "Introduction",
-    description:
-      "StorySign values your privacy and is committed to protecting your personal information. This Privacy Policy explains how we collect, use, store, and protect user data within the StorySign platform.",
-  },
-];
+// Backend ka "content" screen par "description" hai
+const toPolicy = (p: ApiPolicy): Policy => ({
+  id: p.id,
+  title: p.title,
+  description: p.content,
+});
 
 export default function PrivacyPolicy() {
   const [view, setView] = useState<"list" | "form">("list");
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const [policies, setPolicies] = useState<Policy[]>(initialPolicies);
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
 
   const isEditing = editingId !== null;
   const pageSize = 5;
+
+  // ---------- Backend se list lana ----------
+  // isCancelled: page chhorne ya dobara chalne par purana jawab ignore karne ke liye
+  const loadPolicies = async (isCancelled: () => boolean = () => false) => {
+    try {
+      const res = await getPolicies();
+      if (isCancelled()) return;
+
+      console.log("policies raw response:", res);
+
+      // list "data" mein ho sakti hai, ya seedha array ho
+      const raw = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res)
+          ? res
+          : null;
+
+      if (!raw) {
+        throw new Error("Server se policies ki list nahi mili.");
+      }
+
+      const list: ApiPolicy[] = raw;
+      setPolicies(
+        list
+          .filter((p) => (p.type ?? "").toLowerCase() === POLICY_TYPE)
+          .map(toPolicy),
+      );
+      setErrorMsg("");
+    } catch (err) {
+      if (isCancelled()) return;
+      setErrorMsg((err as Error).message);
+    } finally {
+      if (!isCancelled()) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    loadPolicies(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // ------------------------------------------
 
   const filteredPolicies = policies.filter(
     (policy) =>
@@ -107,7 +120,7 @@ export default function PrivacyPolicy() {
 
   // ---------- Pagination ----------
   const totalPages = Math.max(1, Math.ceil(filteredPolicies.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
+  const currentPage = Math.max(1, Math.min(page, totalPages));
 
   const visiblePolicies = filteredPolicies.slice(
     (currentPage - 1) * pageSize,
@@ -123,6 +136,7 @@ export default function PrivacyPolicy() {
 
   const openAddForm = () => {
     resetForm();
+    setErrorMsg("");
     setView("form");
   };
 
@@ -130,44 +144,60 @@ export default function PrivacyPolicy() {
     setEditingId(policy.id);
     setTitle(policy.title);
     setDescription(policy.description);
+    setErrorMsg("");
     setView("form");
   };
 
   const handleCancel = () => {
     resetForm();
+    setErrorMsg("");
     setView("list");
   };
 
-  const deletePolicy = (id: number) => {
-    setPolicies((current) => current.filter((policy) => policy.id !== id));
+  const handleDelete = async (id: string) => {
+    try {
+      setErrorMsg("");
+      await deletePolicyApi(id);
+      await loadPolicies();
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const cleanTitle = title.trim();
     const cleanDescription = description.trim();
 
-    if (cleanTitle) {
-      if (isEditing) {
-        setPolicies((current) =>
-          current.map((policy) =>
-            policy.id === editingId
-              ? { ...policy, title: cleanTitle, description: cleanDescription }
-              : policy,
-          ),
-        );
-      } else {
-        setPolicies((current) => [
-          ...current,
-          {
-            id: Date.now(),
-            title: cleanTitle,
-            description: cleanDescription,
-          },
-        ]);
-      }
+    if (!cleanTitle || !cleanDescription) {
+      setErrorMsg("Title aur description dono zaroori hain.");
+      return;
     }
 
-    setShowSuccess(true);
+    try {
+      setSaving(true);
+      setErrorMsg("");
+
+      if (editingId) {
+        await updatePolicy(editingId, {
+          title: cleanTitle,
+          content: cleanDescription,
+        });
+      } else {
+        await createPolicy({
+          title: cleanTitle,
+          content: cleanDescription,
+          type: "Privacy",
+          isPublished: true,
+        });
+      }
+
+      await loadPolicies();
+      setShowSuccess(true);
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleOkay = () => {
@@ -268,6 +298,12 @@ export default function PrivacyPolicy() {
               </Group>
             </Flex>
 
+            {errorMsg && (
+              <Text c="red.4" size="xs" mb={8}>
+                {errorMsg}
+              </Text>
+            )}
+
             <Stack
               gap={0}
               style={{
@@ -318,7 +354,7 @@ export default function PrivacyPolicy() {
                       radius="xl"
                       size={26}
                       aria-label="Delete policy"
-                      onClick={() => deletePolicy(policy.id)}
+                      onClick={() => handleDelete(policy.id)}
                       styles={iconBtnStyles}
                     >
                       <FaTrashAlt size={10} />
@@ -338,7 +374,13 @@ export default function PrivacyPolicy() {
                 </Box>
               ))}
 
-              {visiblePolicies.length === 0 && (
+              {loading && (
+                <Text ta="center" c="#B8B4B0" size="sm" py="xl">
+                  Loading policies...
+                </Text>
+              )}
+
+              {!loading && visiblePolicies.length === 0 && (
                 <Text ta="center" c="#B8B4B0" size="sm" py="xl">
                   No policies found.
                 </Text>
@@ -403,7 +445,13 @@ export default function PrivacyPolicy() {
             }}
           />
 
-          <Group gap={16} mt={60} align="center">
+          {errorMsg && (
+            <Text c="red.4" size="xs" mt={12}>
+              {errorMsg}
+            </Text>
+          )}
+
+          <Group gap={16} mt={errorMsg ? 36 : 60} align="center">
             <Button
               w={180}
               h={36}
@@ -412,6 +460,7 @@ export default function PrivacyPolicy() {
               c="#FFE8B6"
               fw={500}
               onClick={handleSubmit}
+              loading={saving}
               styles={{ root: { fontSize: "13px" } }}
             >
               {isEditing ? "Update Policy" : "Add Policy"}
