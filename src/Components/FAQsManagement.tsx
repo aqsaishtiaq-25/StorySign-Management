@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   Flex,
@@ -19,6 +19,13 @@ import { HiOutlineBadgeCheck } from "react-icons/hi";
 
 import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
+import {
+  getFaqs,
+  createFaq,
+  updateFaq,
+  deleteFaq as deleteFaqApi,
+} from "../api";
+import type { ApiFaq } from "../api";
 
 const cream = "#FFE8B6";
 const brown = "#81401F";
@@ -27,84 +34,75 @@ const inputBg = "#343131";
 const popupBg = "#FFEBBC";
 
 interface FAQ {
-  id: number;
+  id: string;
   question: string;
   answer: string;
+  sortOrder: number;
 }
 
-const initialFAQs: FAQ[] = [
-  {
-    id: 1,
-    question: "What is StorySign?",
-    answer:
-      "StorySign is a digital platform that allows readers to request personalized ebook signatures from authors through a secure and interactive experience.",
-  },
-  {
-    id: 2,
-    question: "How does StorySign work?",
-    answer:
-      "Readers can browse author profiles, upload their ebooks, request signatures, make payments, and receive digitally signed ebook copies from authors.",
-  },
-  {
-    id: 3,
-    question: "Can readers upload their own ebooks?",
-    answer:
-      "Yes. Readers can upload their ebooks in supported formats and request signatures from available authors.",
-  },
-  {
-    id: 4,
-    question: "Do authors need a subscription plan?",
-    answer:
-      "Yes. Authors must subscribe to a plan before accessing author features and receiving signature requests.",
-  },
-  {
-    id: 5,
-    question: "What subscription plans are available for authors?",
-    answer:
-      "Starter Plan – 25 signatures per month\nProfessional Plan – 100 signatures per month\nPremium Plan – Unlimited signatures",
-  },
-  {
-    id: 6,
-    question: "Can authors reject signature requests?",
-    answer:
-      "Yes. Authors can either accept/sign or reject requests based on availability or request details.",
-  },
-  // neeche ke 3 FAQs sirf page 2 dikhane ke liye hain (asli data mein zaroorat nahi)
-  {
-    id: 7,
-    question: "How do readers receive signed ebooks?",
-    answer:
-      "Once an author signs the request, the signed ebook is delivered digitally to the reader.",
-  },
-  {
-    id: 8,
-    question: "Are payments secure on StorySign?",
-    answer:
-      "Yes. All payments are processed through secure payment gateways, and card details are not stored on our servers.",
-  },
-  {
-    id: 9,
-    question: "Can readers track their requests?",
-    answer:
-      "Yes. Readers can check the status of every autograph request from their account.",
-  },
-];
+const toFaq = (f: ApiFaq): FAQ => ({
+  id: f.id,
+  question: f.question,
+  answer: f.answer,
+  sortOrder: f.sortOrder ?? 0,
+});
 
 export default function FAQsManagement() {
   const [view, setView] = useState<"list" | "form">("list");
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const [faqs, setFaqs] = useState<FAQ[]>(initialFAQs);
+  const [faqs, setFaqs] = useState<FAQ[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [showError, setShowError] = useState(false);
 
   const isEditing = editingId !== null;
   const pageSize = 6;
+
+  // ---------- Backend se list lana ----------
+  const loadFaqs = async (isCancelled: () => boolean = () => false) => {
+    try {
+      const res = await getFaqs();
+      if (isCancelled()) return;
+
+      // list "data" mein ho sakti hai, ya seedha array ho
+      const raw = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res)
+          ? res
+          : null;
+
+      if (!raw) {
+        throw new Error("Server se FAQs ki list nahi mili.");
+      }
+
+      const list: ApiFaq[] = raw;
+      setFaqs(list.map(toFaq).sort((a, b) => a.sortOrder - b.sortOrder));
+      setErrorMsg("");
+    } catch (err) {
+      if (isCancelled()) return;
+      setErrorMsg((err as Error).message);
+    } finally {
+      if (!isCancelled()) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    loadFaqs(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // ------------------------------------------
 
   const filteredFAQs = faqs.filter(
     (faq) =>
@@ -114,7 +112,7 @@ export default function FAQsManagement() {
 
   // ---------- Pagination ----------
   const totalPages = Math.max(1, Math.ceil(filteredFAQs.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
+  const currentPage = Math.max(1, Math.min(page, totalPages));
 
   const visibleFAQs = filteredFAQs.slice(
     (currentPage - 1) * pageSize,
@@ -131,6 +129,7 @@ export default function FAQsManagement() {
 
   const openAddForm = () => {
     resetForm();
+    setErrorMsg("");
     setView("form");
   };
 
@@ -139,19 +138,27 @@ export default function FAQsManagement() {
     setQuestion(faq.question);
     setAnswer(faq.answer);
     setShowError(false);
+    setErrorMsg("");
     setView("form");
   };
 
   const handleCancel = () => {
     resetForm();
+    setErrorMsg("");
     setView("list");
   };
 
-  const deleteFAQ = (id: number) => {
-    setFaqs((current) => current.filter((faq) => faq.id !== id));
+  const handleDelete = async (id: string) => {
+    try {
+      setErrorMsg("");
+      await deleteFaqApi(id);
+      await loadFaqs();
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const cleanQuestion = question.trim();
     const cleanAnswer = answer.trim();
 
@@ -160,23 +167,36 @@ export default function FAQsManagement() {
       return;
     }
 
-    if (isEditing) {
-      setFaqs((current) =>
-        current.map((faq) =>
-          faq.id === editingId
-            ? { ...faq, question: cleanQuestion, answer: cleanAnswer }
-            : faq,
-        ),
-      );
-    } else {
-      setFaqs((current) => [
-        { id: Date.now(), question: cleanQuestion, answer: cleanAnswer },
-        ...current,
-      ]);
-    }
+    try {
+      setSaving(true);
+      setShowError(false);
+      setErrorMsg("");
 
-    setShowError(false);
-    setShowSuccess(true);
+      if (editingId) {
+        await updateFaq(editingId, {
+          question: cleanQuestion,
+          answer: cleanAnswer,
+        });
+      } else {
+        // nayi FAQ list ke aakhir mein: sab se bade sortOrder ke baad
+        const nextOrder =
+          faqs.length > 0 ? Math.max(...faqs.map((f) => f.sortOrder)) + 1 : 1;
+
+        await createFaq({
+          question: cleanQuestion,
+          answer: cleanAnswer,
+          sortOrder: nextOrder,
+          isPublished: true,
+        });
+      }
+
+      await loadFaqs();
+      setShowSuccess(true);
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleOkay = () => {
@@ -235,7 +255,7 @@ export default function FAQsManagement() {
               style={{ flexShrink: 0 }}
             >
               <Text size="22px" fw={700} c={cream}>
-                All Policies
+                All FAQs
               </Text>
 
               <Group gap={14} wrap="nowrap">
@@ -279,6 +299,12 @@ export default function FAQsManagement() {
                 </UnstyledButton>
               </Group>
             </Flex>
+
+            {errorMsg && (
+              <Text c="red.4" size="xs" mb={8}>
+                {errorMsg}
+              </Text>
+            )}
 
             <Stack
               gap={0}
@@ -330,7 +356,7 @@ export default function FAQsManagement() {
                       radius="xl"
                       size={26}
                       aria-label="Delete FAQ"
-                      onClick={() => deleteFAQ(faq.id)}
+                      onClick={() => handleDelete(faq.id)}
                       styles={iconBtnStyles}
                     >
                       <FaTrashAlt size={10} />
@@ -350,7 +376,13 @@ export default function FAQsManagement() {
                 </Box>
               ))}
 
-              {visibleFAQs.length === 0 && (
+              {loading && (
+                <Text ta="center" c="#B8B4B0" size="sm" py="xl">
+                  Loading FAQs...
+                </Text>
+              )}
+
+              {!loading && visibleFAQs.length === 0 && (
                 <Text ta="center" c="#B8B4B0" size="sm" py="xl">
                   No FAQs found.
                 </Text>
@@ -421,7 +453,13 @@ export default function FAQsManagement() {
             </Text>
           )}
 
-          <Group gap={16} mt={showError ? 36 : 60} align="center">
+          {errorMsg && (
+            <Text size="12px" c="#FF6B6B" mt={12}>
+              {errorMsg}
+            </Text>
+          )}
+
+          <Group gap={16} mt={showError || errorMsg ? 36 : 60} align="center">
             <Button
               w={180}
               h={36}
@@ -430,6 +468,7 @@ export default function FAQsManagement() {
               c="#FFE8B6"
               fw={500}
               onClick={handleSubmit}
+              loading={saving}
               styles={{ root: { fontSize: "13px" } }}
             >
               {isEditing ? "Update FAQ" : "Add FAQ"}

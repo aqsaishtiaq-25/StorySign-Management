@@ -345,3 +345,70 @@ export async function deletePolicy(id: string) {
   return handle(res, "Could not delete policy");
 
 }
+
+// ---------- FAQs ----------
+
+export type ApiFaq = {
+  id: string;
+  question: string;
+  answer: string;
+  sortOrder: number;
+  isPublished: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function getFaqs(page = 1, limit = 100) {
+  const res = await fetch(`${BASE_URL}/faqs?page=${page}&limit=${limit}`, {
+    headers: authHeaders(),
+    cache: "no-store", // purana (cached) jawab dobara na aaye
+  });
+  return handle(res, "Could not load FAQs");
+}
+
+export async function getFaqById(id: string) {
+  const res = await fetch(`${BASE_URL}/faqs/${id}`, {
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+  return handle(res, "Could not load FAQ");
+}
+
+export async function createFaq(data: {
+  question: string;
+  answer: string;
+  sortOrder: number;
+  isPublished: boolean;
+}) {
+  const res = await fetch(`${BASE_URL}/faqs`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not create FAQ");
+}
+
+export async function updateFaq(
+  id: string,
+  data: Partial<{
+    question: string;
+    answer: string;
+    sortOrder: number;
+    isPublished: boolean;
+  }>,
+) {
+  const res = await fetch(`${BASE_URL}/faqs/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not update FAQ");
+}
+
+export async function deleteFaq(id: string) {
+  const res = await fetch(`${BASE_URL}/faqs/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not delete FAQ");
+}
