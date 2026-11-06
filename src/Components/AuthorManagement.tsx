@@ -27,8 +27,12 @@ import {
 import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
 import authorImg from "../assets/Author-image.png";
-import { getUsers } from "../api";
-import type { ApiUser } from "../api";
+import { getUsers, getPlans, getSubscriptions } from "../api";
+import type { ApiUser, ApiPlan, ApiSubscription } from "../api";
+
+// List "data" ke andar ho sakti hai, ya seedha array ho
+const toList = (res: any): any[] | null =>
+  Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : null;
 
 export default function AuthorManagement() {
   const navigate = useNavigate();
@@ -39,19 +43,61 @@ export default function AuthorManagement() {
 
   // ---------- Backend data ----------
   const [users, setUsers] = useState<ApiUser[]>([]);
+  const [plans, setPlans] = useState<ApiPlan[]>([]);
+  const [subs, setSubs] = useState<ApiSubscription[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [planWarning, setPlanWarning] = useState<string>("");
   const [search, setSearch] = useState<string>("");
 
   useEffect(() => {
-    getUsers()
-      .then((res) => {
-        const list: ApiUser[] = res.data ?? [];
+    let cancelled = false;
+
+    (async () => {
+      // Teeno ek saath mangwate hain. Ek fail ho to baaki phir bhi chalte hain.
+      const [usersRes, plansRes, subsRes] = await Promise.allSettled([
+        getUsers(1, 100),
+        getPlans(),
+        getSubscriptions(),
+      ]);
+      if (cancelled) return;
+
+      if (usersRes.status === "fulfilled") {
+        const list = (toList(usersRes.value) ?? []) as ApiUser[];
         setUsers(list.filter((u) => u.role === "AUTHOR"));
-      })
-      .catch((err) => setErrorMsg((err as Error).message))
-      .finally(() => setLoading(false));
+      } else {
+        setErrorMsg(
+          `Could not load authors: ${(usersRes.reason as Error).message}`,
+        );
+      }
+
+      if (plansRes.status === "fulfilled") {
+        setPlans((toList(plansRes.value) ?? []) as ApiPlan[]);
+      }
+      if (subsRes.status === "fulfilled") {
+        setSubs((toList(subsRes.value) ?? []) as ApiSubscription[]);
+      }
+      if (plansRes.status === "rejected" || subsRes.status === "rejected") {
+        setPlanWarning("Could not load plan details.");
+      }
+
+      setLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // ---------- Author ka plan: userId -> plan ka naam ----------
+  const planById = new Map(plans.map((p) => [p.id, p]));
+  const planNameByUser = new Map<string, string>();
+
+  subs.forEach((s) => {
+    if ((s.status ?? "").toLowerCase() !== "active") return;
+    const p: any = planById.get(s.planId) ?? (s as any).plan;
+    planNameByUser.set(s.userId, p?.name ?? "Unknown plan");
+  });
 
   const activeCount = users.filter((u) => u.isActive).length;
   const inactiveCount = users.length - activeCount;
@@ -75,7 +121,7 @@ export default function AuthorManagement() {
       name: `${u.firstName} ${u.lastName}`.trim(),
       email: u.email,
       avatar: u.avatarUrl || authorImg,
-      plan: "-",
+      plan: planWarning ? "-" : (planNameByUser.get(u.id) ?? "No Plan"),
       signedBook: "-",
       pendingRequest: "-",
       status: u.isActive ? "Active" : "Inactive",
@@ -84,7 +130,9 @@ export default function AuthorManagement() {
       const q = search.trim().toLowerCase();
       if (!q) return true;
       return (
-        a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q)
+        a.name.toLowerCase().includes(q) ||
+        a.email.toLowerCase().includes(q) ||
+        a.plan.toLowerCase().includes(q)
       );
     });
 
@@ -93,7 +141,8 @@ export default function AuthorManagement() {
   const [page, setPage] = useState(1);
 
   const totalPages = Math.max(1, Math.ceil(authors.length / PAGE_SIZE));
-  const start = (page - 1) * PAGE_SIZE;
+  const currentPage = Math.max(1, Math.min(page, totalPages));
+  const start = (currentPage - 1) * PAGE_SIZE;
   const currentAuthors = authors.slice(start, start + PAGE_SIZE);
   // --------------------------------
 
@@ -255,6 +304,12 @@ export default function AuthorManagement() {
             </Text>
           )}
 
+          {planWarning && (
+            <Text c="red.4" size="11px" mb={6}>
+              {planWarning}
+            </Text>
+          )}
+
           {!loading && !errorMsg && authors.length === 0 && (
             <Text c="#E0E0E0" size="14px">
               No authors found.
@@ -339,10 +394,13 @@ export default function AuthorManagement() {
                     </Table.Td>
 
                     <Table.Td
-                      c="#FFFFFF"
-                      fw={500}
+                      c={author.plan === "No Plan" ? "#9A9690" : "#FFFFFF"}
+                      fw={author.plan === "No Plan" ? 400 : 500}
                       py={12}
-                      style={{ ...tdStyle, fontSize: "14px" }}
+                      style={{
+                        ...tdStyle,
+                        fontSize: author.plan === "No Plan" ? "12px" : "14px",
+                      }}
                     >
                       {author.plan}
                     </Table.Td>
@@ -411,7 +469,11 @@ export default function AuthorManagement() {
         </Box>
       </Box>
 
-      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+      <Pagination
+        page={currentPage}
+        totalPages={totalPages}
+        onChange={setPage}
+      />
     </ReaderLayout>
   );
 }

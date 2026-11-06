@@ -412,3 +412,151 @@ export async function deleteFaq(id: string) {
   });
   return handle(res, "Could not delete FAQ");
 }
+
+
+// ---------- Subscription plans & subscriptions ----------
+// ZAROORI: neeche ke do URL Postman ki requests ke URL se milayein
+const PLANS_URL = `${BASE_URL}/subscription-plans`;
+const SUBSCRIPTIONS_URL = `${BASE_URL}/subscriptions`;
+
+export type ApiPlan = {
+  id: string;
+  name: string;
+  planType: string;
+  planCharges: number;
+  features: string[];
+  isActive: boolean;
+};
+
+export type ApiSubscription = {
+  id: string;
+  userId: string;
+  planId: string;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  user?: { firstName?: string; lastName?: string; avatarUrl?: string | null };
+  plan?: { name?: string; planType?: string; planCharges?: number };
+};
+
+export async function getPlans(page = 1, limit = 100) {
+  const res = await fetch(`${PLANS_URL}?page=${page}&limit=${limit}`, {
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+  return handle(res, "Could not load plans");
+}
+
+export async function createPlan(data: {
+  name: string;
+  planType: string;
+  planCharges: number;
+  features: string[];
+  isActive: boolean;
+}) {
+  const res = await fetch(PLANS_URL, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not create plan");
+}
+
+export async function updatePlan(
+  id: string,
+  data: Partial<{
+    name: string;
+    planType: string;
+    planCharges: number;
+    features: string[];
+    isActive: boolean;
+  }>,
+) {
+  const res = await fetch(`${PLANS_URL}/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not update plan");
+}
+
+export async function deletePlan(id: string) {
+  const res = await fetch(`${PLANS_URL}/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not delete plan");
+}
+
+export async function getSubscriptions(page = 1, limit = 100) {
+  const res = await fetch(`${SUBSCRIPTIONS_URL}?page=${page}&limit=${limit}`, {
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+  return handle(res, "Could not load subscriptions");
+}
+
+
+// ---------- Admin: subscription actions ----------
+// ZAROORI: Postman mein "Cancle subscription" ka URL dekhein. Agar woh
+// {{baseUrl}}/subscriptions/<id>/cancel nahi hai, to neeche wali line mein
+// "/cancel" ko us ke mutabiq badal dein.
+export async function cancelSubscription(id: string) {
+  const res = await fetch(`${SUBSCRIPTIONS_URL}/${id}/cancel`, {
+    method: "PATCH",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not cancel subscription");
+}
+
+export async function deleteSubscription(id: string) {
+  const res = await fetch(`${SUBSCRIPTIONS_URL}/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not delete subscription");
+}
+
+// ---------- Author: own subscription ----------
+// ZAROORI: neeche ke do URL Postman se milayein
+// ("See own subscription" aur "Cancel my subscription")
+const MY_SUBSCRIPTION_URL = `${SUBSCRIPTIONS_URL}/my`;
+const CANCEL_MY_SUBSCRIPTION_URL = `${SUBSCRIPTIONS_URL}/my/cancel`;
+
+export async function subscribeToPlan(planId: string) {
+  const res = await fetch(SUBSCRIPTIONS_URL, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ planId }),
+  });
+  return handle(res, "Could not subscribe to this plan");
+}
+
+// Active subscription na ho to null wapas deta hai (error nahi)
+export async function getMySubscription(): Promise<ApiSubscription | null> {
+  const res = await fetch(MY_SUBSCRIPTION_URL, {
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+
+  if (res.status === 404) {
+    const body = await res.json().catch(() => ({}));
+    const msg = String(body?.message ?? "");
+    // Sirf "Active subscription not found" ko khali maanein.
+    // Galat URL ka 404 chhupna nahi chahiye.
+    if (msg.toLowerCase().includes("active subscription")) return null;
+    throw new Error(msg || "Could not load your subscription");
+  }
+
+  const body = await handle(res, "Could not load your subscription");
+  const sub = body?.data ?? body;
+  return sub && sub.id ? (sub as ApiSubscription) : null;
+}
+
+export async function cancelMySubscription() {
+  const res = await fetch(CANCEL_MY_SUBSCRIPTION_URL, {
+    method: "PATCH",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not cancel your subscription");
+}
