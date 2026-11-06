@@ -171,6 +171,7 @@ export async function deleteEbook(id: string) {
   return handle(res, "Could not delete ebook");
 }
 
+// ---------- Autograph Requests ----------
 
 export type AutographStats = Record<string, number | undefined>;
 
@@ -204,6 +205,8 @@ export async function deleteAutographRequest(id: string) {
   return handle(res, "Could not delete autograph request");
 }
 
+// ---------- Autograph Fee ----------
+
 const FEE_CURRENT_URL = `${BASE_URL}/autograph-fee`;
 const FEE_UPDATE_URL = `${BASE_URL}/autograph-fee`;
 const FEE_HISTORY_URL = `${BASE_URL}/autograph-fee/history`;
@@ -229,7 +232,6 @@ export async function updateAutographFee(amount: number) {
   });
   return handle(res, "Could not update autograph fee");
 }
-
 
 // ---------- Dashboard ----------
 const DASH_BASE = `${BASE_URL}/admin/dashboard`;
@@ -278,8 +280,9 @@ export async function getSupportQueryStats(): Promise<SupportQueryStats> {
 export async function getSupportQueryById(id: string) {
   const res = await fetch(`${SQ_URL}/${id}`, { headers: authHeaders() });
   return handle(res, "Could not load support query");
-
 }
+
+// ---------- Policies ----------
 
 export type ApiPolicy = {
   id: string;
@@ -343,7 +346,6 @@ export async function deletePolicy(id: string) {
     headers: authHeaders(),
   });
   return handle(res, "Could not delete policy");
-
 }
 
 // ---------- FAQs ----------
@@ -411,4 +413,70 @@ export async function deleteFaq(id: string) {
     headers: authHeaders(),
   });
   return handle(res, "Could not delete FAQ");
+}
+
+// ---------- Notifications ----------
+
+const NOTIF_LIST_URL = `${BASE_URL}/notifications`;
+const NOTIF_SEND_URL = `${BASE_URL}/notifications/broadcast`;
+
+export async function getNotifications(page = 1, limit = 7) {
+  const res = await fetch(`${NOTIF_LIST_URL}?page=${page}&limit=${limit}`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load notifications");
+}
+
+export async function sendNotification(data: {
+  recipientType: string;
+  title: string;
+  message: string;
+}): Promise<{ message?: string; recipientType?: string; recipientCount?: number }> {
+  const res = await fetch(NOTIF_SEND_URL, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not send notification");
+}
+
+// ---------- Reader Management ----------
+const READERS_URL = `${BASE_URL}/users`;
+const READER_STATS_URL = `${BASE_URL}/users/admin/reader-status`;
+
+export type ReaderStats = {
+  totalReaders?: number;
+  activeReaders?: number;
+  inactiveReaders?: number;
+  suspendedReaders?: number;
+};
+
+export async function getReaders(page = 1, limit = 5) {
+  // role=READER pehle, phir page/limit -- sab '&' se jore hain (sirf ek '?')
+  const res = await fetch(
+    `${READERS_URL}?role=READER&page=${page}&limit=${limit}`,
+    { headers: authHeaders() },
+  );
+  return handle(res, "Could not load readers");
+}
+
+export async function getReaderStats(): Promise<ReaderStats> {
+  const res = await fetch(READER_STATS_URL, { headers: authHeaders() });
+  return handle(res, "Could not load reader stats");
+}
+
+// Suspend / unsuspend / activate / deactivate ek hi function se
+export type UserAction = "suspend" | "unsuspend" | "activate" | "deactivate";
+
+export async function changeUserStatus(
+  id: string,
+  action: UserAction,
+  reason = "Updated by admin",
+) {
+  const res = await fetch(`${BASE_URL}/users/admin/${id}/${action}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify({ reason }),
+  });
+  return handle(res, `Could not ${action} user`);
 }
