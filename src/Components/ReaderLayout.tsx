@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Box,
   Flex,
@@ -32,6 +33,7 @@ import { BiLogOut, BiDollarCircle, BiLineChart } from "react-icons/bi";
 
 import logo from "../assets/logo.png";
 import profileImg from "../assets/image.jpg";
+import { getMyProfile } from "../api";
 
 interface ReaderLayoutProps {
   children: any;
@@ -59,6 +61,45 @@ export default function ReaderLayout({
   activePage = "reader",
 }: ReaderLayoutProps) {
   const navigate = useNavigate();
+
+  // Top-right par dikhne wala login user (backend se aata hai)
+  const [me, setMe] = useState<{
+    name: string;
+    email: string;
+    avatar: string | null;
+  }>({ name: "", email: "", avatar: null });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMe = () => {
+      if (!localStorage.getItem("token")) return;
+      getMyProfile()
+        .then((data) => {
+          if (cancelled) return;
+          const p = data?.user ?? data?.data ?? data;
+          const name = `${p?.firstName ?? ""} ${p?.lastName ?? ""}`.trim();
+          setMe({
+            name,
+            email: p?.email ?? "",
+            avatar: p?.avatarUrl ?? null,
+          });
+        })
+        .catch(() => {
+          // Header ke liye chup rehna theek hai; page apna error khud dikhata hai
+        });
+    };
+
+    loadMe();
+
+    // Profile page update ke baad "profile-updated" event bhejta hai,
+    // taake top-right wala naam foran badal jaye
+    window.addEventListener("profile-updated", loadMe);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("profile-updated", loadMe);
+    };
+  }, []);
 
   const outerBg = "#343131";
   const accentCardBg = "#FFE8B6";
@@ -330,20 +371,27 @@ export default function ReaderLayout({
             />
 
             <Group gap="xs" align="center" style={{ width: 170 }}>
-              <Avatar src={profileImg} size={36} radius="xl" />
+              {/* avatarUrl na ho to purani default photo dikhao */}
+              <Avatar src={me.avatar || profileImg} size={36} radius="xl" />
 
-              <Box>
+              <Box style={{ minWidth: 0 }}>
                 <Text
                   size="12px"
                   fw={500}
                   c="#FFFFFF"
+                  truncate
                   style={{ lineHeight: 1.2 }}
                 >
-                  John ibrahim
+                  {me.name}
                 </Text>
 
-                <Text size="10px" c="#8C8C8C" style={{ lineHeight: 1.2 }}>
-                  john@gmail.com
+                <Text
+                  size="10px"
+                  c="#8C8C8C"
+                  truncate
+                  style={{ lineHeight: 1.2 }}
+                >
+                  {me.email}
                 </Text>
               </Box>
             </Group>

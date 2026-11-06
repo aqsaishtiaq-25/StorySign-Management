@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -12,13 +12,12 @@ import {
   SimpleGrid,
   Table,
   ActionIcon,
+  Loader,
 } from "@mantine/core";
 
 import { MdSearch } from "react-icons/md";
 
 import {
-  FiTrendingUp,
-  FiTrendingDown,
   FiFilter,
   FiUsers,
   FiUserCheck,
@@ -34,81 +33,153 @@ import DeactivateModal from "./DeactivateModal";
 import ActivateModal from "./ActivateModal";
 import SuspendModal from "./SuspendModal";
 import SuccessModal from "./SuccessModal";
+import {
+  changeUserStatus,
+  getReaders,
+  getReaderStats,
+  type ReaderStats,
+} from "../api";
 
-/* ---------------- test data (asli data baad mein API se aayega) ----------------
-   23 readers banaye hain taake 5 pages nazar aayein.
----------------------------------------------------------------------------------- */
-const statuses = ["Active", "Active", "Inactive", "Active", "Suspended"];
+type ReaderStatus = "Active" | "Inactive" | "Suspended";
 
-const allReaders = Array.from({ length: 23 }, (_, i) => ({
-  id: String(123400 + i),
-  name: "Cordell Edwards",
-  email: "croldel@gmail.com",
-  book: "Things Fall Apart",
-  status: statuses[i % 5],
-  spent: "$40.00",
-}));
+interface ReaderRow {
+  id: string;
+  shortId: string;
+  name: string;
+  email: string;
+  avatar: string;
+  book: string;
+  status: ReaderStatus;
+  spent: string;
+}
 
 const PAGE_SIZE = 5; // ek page par kitne readers
+
+// Backend ka reader -> table ki row
+function toRow(u: any): ReaderRow {
+  const books: any[] = Array.isArray(u.books) ? u.books : [];
+  const first = books[0]?.title ?? "-";
+  const extra = books.length > 1 ? ` +${books.length - 1} more` : "";
+
+  // Suspend hone par isActive bhi false ho jata hai, isliye pehle isSuspended dekhte hain
+  const status: ReaderStatus = u.isSuspended
+    ? "Suspended"
+    : u.isActive
+      ? "Active"
+      : "Inactive";
+
+  return {
+    id: String(u.id),
+    shortId: String(u.id).slice(0, 8),
+    name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "Unknown",
+    email: u.email ?? "-",
+    avatar: u.avatarUrl || readerImg,
+    book: `${first}${extra}`,
+    status,
+    spent: `$${Number(u.totalSpent ?? 0).toFixed(2)}`,
+  };
+}
 
 export default function ReaderManagement() {
   const navigate = useNavigate();
 
+  const [readers, setReaders] = useState<ReaderRow[]>([]);
+  const [stats, setStats] = useState<ReaderStats | null>(null);
+  const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
-
-  // kul pages data ki ginti se khud nikalte hain
-  const totalPages = Math.ceil(allReaders.length / PAGE_SIZE);
-  // sirf current page ke readers
-  const readers = allReaders.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [deactivateOpened, setDeactivateOpened] = useState(false);
   const [activateOpened, setActivateOpened] = useState(false);
   const [suspendOpened, setSuspendOpened] = useState(false);
   const [successOpened, setSuccessOpened] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
 
+  const [selected, setSelected] = useState<ReaderRow | null>(null);
   const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const innerContainerBg = "#211E1E";
   const accentCardBg = "#FFE8B6";
-
   const numberColor = "#2A1005";
 
-  const greenText = "#1A7F48";
-  const greenBg = "rgba(26, 127, 72, 0.18)";
+  // Cards: shuru mein aur har action ke baad
+  useEffect(() => {
+    getReaderStats()
+      .then(setStats)
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Could not load stats"),
+      );
+  }, [reloadKey]);
 
-  const redText = "#C62828";
-  const redBg = "rgba(198, 40, 40, 0.18)";
+  // Readers: har page change par aur har action ke baad
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const res: any = await getReaders(page, PAGE_SIZE);
+        const list: any[] = Array.isArray(res)
+          ? res
+          : (res?.data ?? res?.items ?? res?.users ?? []);
+
+        if (!cancelled) {
+          setReaders(list.map(toRow));
+          setTotalPages(Math.max(1, res?.pagination?.totalPages ?? 1));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Something went wrong");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [page, reloadKey]);
 
   const statCards = [
     {
       title: "Total Readers",
-      value: "3,248",
+      value: stats?.totalReaders ?? 0,
       icon: FiUsers,
-      trend: "+15%",
-      up: true,
     },
     {
       title: "Active Readers",
-      value: "243",
+      value: stats?.activeReaders ?? 0,
       icon: FiUserCheck,
-      trend: "-3.5%",
-      up: false,
     },
     {
       title: "Inactive Readers",
-      value: "3,455",
+      value: stats?.inactiveReaders ?? 0,
       icon: FiUserMinus,
-      trend: "+15%",
-      up: true,
     },
     {
       title: "Suspended Reader",
-      value: "30",
+      value: stats?.suspendedReaders ?? 0,
       icon: FiUserX,
-      trend: "+5%",
-      up: true,
     },
   ];
+
+  // Search sirf current page ki rows par chalta hai
+  const query = search.trim().toLowerCase();
+  const visible = readers.filter(
+    (r) =>
+      !query ||
+      `${r.shortId} ${r.name} ${r.email} ${r.book} ${r.status}`
+        .toLowerCase()
+        .includes(query),
+  );
 
   const getStatusStyle = (status: string) => {
     if (status === "Active") {
@@ -134,23 +205,64 @@ export default function ReaderManagement() {
     };
   };
 
-  const handleActivate = () => {
-    console.log("Activated", reason);
+  /* ---------------- actions ---------------- */
+
+  const openModal = (
+    row: ReaderRow,
+    which: "activate" | "deactivate" | "suspend",
+  ) => {
+    setSelected(row);
+    setReason("");
+    if (which === "activate") setActivateOpened(true);
+    if (which === "deactivate") setDeactivateOpened(true);
+    if (which === "suspend") setSuspendOpened(true);
+  };
+
+  const closeAll = () => {
     setActivateOpened(false);
-    setReason("");
-    setSuccessOpened(true);
-  };
-
-  const handleDeactivate = () => {
-    console.log("Deactivated", reason);
     setDeactivateOpened(false);
-    setReason("");
-  };
-
-  const handleSuspend = () => {
-    console.log("Suspended", reason);
     setSuspendOpened(false);
     setReason("");
+  };
+
+  const runAction = async (kind: "activate" | "deactivate" | "suspend") => {
+    if (!selected || busy) return;
+
+    // Reason khali ho to default bhejte hain
+    const why = reason.trim() || "Updated by admin";
+
+    try {
+      setBusy(true);
+
+      if (kind === "activate") {
+        if (selected.status === "Suspended") {
+          // Suspended reader ko pehle unsuspend karte hain, phir activate
+          await changeUserStatus(selected.id, "unsuspend", why);
+          try {
+            await changeUserStatus(selected.id, "activate", why);
+          } catch {
+            // Agar unsuspend se hi reader active ho gaya ho to yahan error aa sakta hai, theek hai
+          }
+        } else {
+          await changeUserStatus(selected.id, "activate", why);
+        }
+        setSuccessMsg("User have been activated Successfully");
+      } else if (kind === "deactivate") {
+        await changeUserStatus(selected.id, "deactivate", why);
+        setSuccessMsg("User have been deactivated Successfully");
+      } else {
+        await changeUserStatus(selected.id, "suspend", why);
+        setSuccessMsg("User have been suspended Successfully");
+      }
+
+      closeAll();
+      setSuccessOpened(true);
+      setReloadKey((k) => k + 1); // list aur cards dobara mangwao
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const thStyle = {
@@ -166,11 +278,13 @@ export default function ReaderManagement() {
     borderBottom: "1px solid rgba(255,255,255,0.12)",
   };
 
-  const actionBtnStyle = {
+  const actionBtnStyle = (enabled: boolean) => ({
     backgroundColor: "transparent",
     border: "1px solid rgba(255,232,182,0.75)",
     color: accentCardBg,
-  };
+    opacity: enabled ? 1 : 0.3,
+    cursor: enabled ? "pointer" : "not-allowed",
+  });
 
   return (
     <>
@@ -209,39 +323,11 @@ export default function ReaderManagement() {
                       </Text>
 
                       <Text size="22px" fw={800} c={numberColor} mt={2}>
-                        {card.value}
+                        {card.value.toLocaleString()}
                       </Text>
                     </Box>
 
                     <CardIcon size={18} color={numberColor} />
-                  </Group>
-
-                  <Group gap={6} align="center" mt={8}>
-                    <Box
-                      style={{
-                        width: 20,
-                        height: 20,
-                        borderRadius: "50%",
-                        backgroundColor: card.up ? greenBg : redBg,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {card.up ? (
-                        <FiTrendingUp size={11} color={greenText} />
-                      ) : (
-                        <FiTrendingDown size={11} color={redText} />
-                      )}
-                    </Box>
-
-                    <Text
-                      size="11px"
-                      fw={700}
-                      c={card.up ? greenText : redText}
-                    >
-                      {card.trend}
-                    </Text>
                   </Group>
                 </Box>
               );
@@ -260,6 +346,8 @@ export default function ReaderManagement() {
             <Group gap={16}>
               <TextInput
                 placeholder="Search"
+                value={search}
+                onChange={(e) => setSearch(e.currentTarget.value)}
                 leftSection={<MdSearch size={17} color="#D0D0D0" />}
                 styles={{
                   input: {
@@ -298,149 +386,192 @@ export default function ReaderManagement() {
           </Flex>
 
           <Box style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-            <Table
-              verticalSpacing={8}
-              horizontalSpacing={0}
-              style={{
-                color: "#CCCCCC",
-                fontSize: "12px",
-                width: "100%",
-                tableLayout: "fixed",
-              }}
-            >
-              <Table.Thead>
-                <Table.Tr style={{ borderBottom: "none" }}>
-                  <Table.Th style={{ ...thStyle, width: "11%" }}>ID</Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "20%" }}>
-                    Profile
-                  </Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "19%" }}>
-                    Email
-                  </Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "17%" }}>Book</Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "13%" }}>
-                    Status
-                  </Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "10%" }}>
-                    Spent
-                  </Table.Th>
-                  <Table.Th
-                    style={{
-                      ...thStyle,
-                      width: "17%",
-                      textAlign: "right",
-                      paddingRight: 8,
-                    }}
-                  >
-                    Action
-                  </Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-
-              <Table.Tbody>
-                {readers.map((reader) => (
-                  <Table.Tr key={reader.id} style={{ borderBottom: "none" }}>
-                    <Table.Td c="#FFFFFF" py={12} style={tdStyle}>
-                      {reader.id}
-                    </Table.Td>
-
-                    <Table.Td py={12} style={tdStyle}>
-                      <Group
-                        gap={8}
-                        wrap="nowrap"
-                        onClick={() => navigate("/reader-detail")}
-                        style={{ cursor: "pointer" }}
-                      >
-                        <Avatar src={readerImg} size={32} radius="xl" />
-
-                        <Text
-                          size="11px"
-                          c="#FFFFFF"
-                          style={{ lineHeight: 1.25, maxWidth: 90 }}
-                        >
-                          {reader.name}
-                        </Text>
-                      </Group>
-                    </Table.Td>
-
-                    <Table.Td c="#E0E0E0" py={12} style={tdStyle}>
-                      {reader.email}
-                    </Table.Td>
-
-                    <Table.Td fw={600} c="#FFFFFF" py={12} style={tdStyle}>
-                      {reader.book}
-                    </Table.Td>
-
-                    <Table.Td py={12} style={tdStyle}>
-                      <Box
-                        px={10}
-                        py={4}
-                        style={{
-                          ...getStatusStyle(reader.status),
-                          borderRadius: "6px",
-                          display: "inline-block",
-                          fontSize: "10px",
-                          fontWeight: 500,
-                          lineHeight: 1.1,
-                        }}
-                      >
-                        {reader.status}
-                      </Box>
-                    </Table.Td>
-
-                    <Table.Td c="#FFFFFF" fw={500} py={12} style={tdStyle}>
-                      {reader.spent}
-                    </Table.Td>
-
-                    <Table.Td py={12} style={tdStyle}>
-                      <Group gap={8} justify="flex-end" wrap="nowrap">
-                        {/* ACTIVATE */}
-                        <ActionIcon
-                          variant="transparent"
-                          size={32}
-                          radius="xl"
-                          onClick={() => {
-                            setReason("");
-                            setActivateOpened(true);
-                          }}
-                          style={actionBtnStyle}
-                        >
-                          <FiUserCheck size={15} />
-                        </ActionIcon>
-
-                        {/* DEACTIVATE */}
-                        <ActionIcon
-                          variant="transparent"
-                          size={32}
-                          radius="xl"
-                          onClick={() => {
-                            setReason("");
-                            setDeactivateOpened(true);
-                          }}
-                          style={actionBtnStyle}
-                        >
-                          <FiUserMinus size={15} />
-                        </ActionIcon>
-
-                        {/* SUSPEND */}
-                        <ActionIcon
-                          variant="transparent"
-                          size={32}
-                          radius="xl"
-                          onClick={() => {
-                            setReason("");
-                            setSuspendOpened(true);
-                          }}
-                          style={actionBtnStyle}
-                        >
-                          <FiUserX size={15} />
-                        </ActionIcon>
-                      </Group>
-                    </Table.Td>
+            {loading ? (
+              <Flex justify="center" py="xl">
+                <Loader color={accentCardBg} size="sm" />
+              </Flex>
+            ) : error ? (
+              <Text ta="center" c="#FF6B6B" size="sm" py="xl">
+                {error}
+              </Text>
+            ) : (
+              <Table
+                verticalSpacing={8}
+                horizontalSpacing={0}
+                style={{
+                  color: "#CCCCCC",
+                  fontSize: "12px",
+                  width: "100%",
+                  tableLayout: "fixed",
+                }}
+              >
+                <Table.Thead>
+                  <Table.Tr style={{ borderBottom: "none" }}>
+                    <Table.Th style={{ ...thStyle, width: "11%" }}>ID</Table.Th>
+                    <Table.Th style={{ ...thStyle, width: "20%" }}>
+                      Profile
+                    </Table.Th>
+                    <Table.Th style={{ ...thStyle, width: "19%" }}>
+                      Email
+                    </Table.Th>
+                    <Table.Th style={{ ...thStyle, width: "17%" }}>
+                      Book
+                    </Table.Th>
+                    <Table.Th style={{ ...thStyle, width: "13%" }}>
+                      Status
+                    </Table.Th>
+                    <Table.Th style={{ ...thStyle, width: "10%" }}>
+                      Spent
+                    </Table.Th>
+                    <Table.Th
+                      style={{
+                        ...thStyle,
+                        width: "17%",
+                        textAlign: "right",
+                        paddingRight: 8,
+                      }}
+                    >
+                      Action
+                    </Table.Th>
                   </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+                </Table.Thead>
+
+                <Table.Tbody>
+                  {visible.map((reader) => {
+                    const canActivate = reader.status !== "Active";
+                    const canDeactivate = reader.status === "Active";
+                    const canSuspend = reader.status !== "Suspended";
+
+                    return (
+                      <Table.Tr
+                        key={reader.id}
+                        style={{ borderBottom: "none" }}
+                      >
+                        <Table.Td c="#FFFFFF" py={12} style={tdStyle}>
+                          {reader.shortId}
+                        </Table.Td>
+
+                        <Table.Td py={12} style={tdStyle}>
+                          <Group
+                            gap={8}
+                            wrap="nowrap"
+                            onClick={() => navigate("/reader-detail")}
+                            style={{ cursor: "pointer" }}
+                          >
+                            <Avatar src={reader.avatar} size={32} radius="xl" />
+
+                            <Text
+                              size="11px"
+                              c="#FFFFFF"
+                              style={{ lineHeight: 1.25, maxWidth: 90 }}
+                            >
+                              {reader.name}
+                            </Text>
+                          </Group>
+                        </Table.Td>
+
+                        <Table.Td
+                          c="#E0E0E0"
+                          py={12}
+                          style={{
+                            ...tdStyle,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {reader.email}
+                        </Table.Td>
+
+                        <Table.Td
+                          fw={600}
+                          c="#FFFFFF"
+                          py={12}
+                          style={{
+                            ...tdStyle,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {reader.book}
+                        </Table.Td>
+
+                        <Table.Td py={12} style={tdStyle}>
+                          <Box
+                            px={10}
+                            py={4}
+                            style={{
+                              ...getStatusStyle(reader.status),
+                              borderRadius: "6px",
+                              display: "inline-block",
+                              fontSize: "10px",
+                              fontWeight: 500,
+                              lineHeight: 1.1,
+                            }}
+                          >
+                            {reader.status}
+                          </Box>
+                        </Table.Td>
+
+                        <Table.Td c="#FFFFFF" fw={500} py={12} style={tdStyle}>
+                          {reader.spent}
+                        </Table.Td>
+
+                        <Table.Td py={12} style={tdStyle}>
+                          <Group gap={8} justify="flex-end" wrap="nowrap">
+                            {/* ACTIVATE */}
+                            <ActionIcon
+                              variant="transparent"
+                              size={32}
+                              radius="xl"
+                              title="Activate"
+                              disabled={!canActivate}
+                              onClick={() => openModal(reader, "activate")}
+                              style={actionBtnStyle(canActivate)}
+                            >
+                              <FiUserCheck size={15} />
+                            </ActionIcon>
+
+                            {/* DEACTIVATE */}
+                            <ActionIcon
+                              variant="transparent"
+                              size={32}
+                              radius="xl"
+                              title="Deactivate"
+                              disabled={!canDeactivate}
+                              onClick={() => openModal(reader, "deactivate")}
+                              style={actionBtnStyle(canDeactivate)}
+                            >
+                              <FiUserMinus size={15} />
+                            </ActionIcon>
+
+                            {/* SUSPEND */}
+                            <ActionIcon
+                              variant="transparent"
+                              size={32}
+                              radius="xl"
+                              title="Suspend"
+                              disabled={!canSuspend}
+                              onClick={() => openModal(reader, "suspend")}
+                              style={actionBtnStyle(canSuspend)}
+                            >
+                              <FiUserX size={15} />
+                            </ActionIcon>
+                          </Group>
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
+                </Table.Tbody>
+              </Table>
+            )}
+
+            {!loading && !error && visible.length === 0 && (
+              <Text ta="center" c="#B8B4B0" size="sm" py="xl">
+                No readers found.
+              </Text>
+            )}
           </Box>
         </Box>
 
@@ -452,42 +583,32 @@ export default function ReaderManagement() {
 
       <DeactivateModal
         opened={deactivateOpened}
-        onClose={() => {
-          setDeactivateOpened(false);
-          setReason("");
-        }}
+        onClose={closeAll}
         reason={reason}
         setReason={setReason}
-        onConfirm={handleDeactivate}
+        onConfirm={() => runAction("deactivate")}
       />
 
       <ActivateModal
         opened={activateOpened}
-        onClose={() => {
-          setActivateOpened(false);
-          setReason("");
-        }}
+        onClose={closeAll}
         reason={reason}
         setReason={setReason}
-        onConfirm={handleActivate}
+        onConfirm={() => runAction("activate")}
       />
 
       <SuspendModal
         opened={suspendOpened}
-        onClose={() => {
-          setSuspendOpened(false);
-          setReason("");
-        }}
+        onClose={closeAll}
         reason={reason}
         setReason={setReason}
-        onConfirm={handleSuspend}
+        onConfirm={() => runAction("suspend")}
       />
 
       <SuccessModal
         opened={successOpened}
-        onClose={() => {
-          setSuccessOpened(false);
-        }}
+        message={successMsg}
+        onClose={() => setSuccessOpened(false)}
       />
     </>
   );

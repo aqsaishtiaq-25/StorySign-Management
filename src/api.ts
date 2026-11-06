@@ -81,6 +81,22 @@ export async function updateMyProfile(data: {
   return handle(res, "Could not update profile");
 }
 
+// ZAROORI: Postman ma "Update Password" ka URL dekh kar neeche wali line match karein
+const UPDATE_PASSWORD_URL = `${BASE_URL}/users/my/password`;
+
+export async function updatePassword(data: {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  const res = await fetch(UPDATE_PASSWORD_URL, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not update password");
+}
+
 // ---------- Author Management ----------
 
 export async function getUsers(page = 1, limit = 100) {

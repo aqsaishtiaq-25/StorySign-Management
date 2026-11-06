@@ -12,8 +12,8 @@ import { FaPen, FaCamera } from "react-icons/fa";
 import { MdOutlineVerified } from "react-icons/md";
 
 import ReaderLayout from "./ReaderLayout";
-import alexa from "../assets/Readerimg.png"; // Alexa (girl) photo
-import { getMyProfile, updateMyProfile } from "../api";
+import alexa from "../assets/Readerimg.png"; // default photo (avatarUrl na ho to)
+import { getMyProfile, updateMyProfile, updatePassword } from "../api";
 
 /**
  * SIZING
@@ -78,6 +78,12 @@ const emptyForm: Record<string, string> = {
   confirmPassword: "",
 };
 
+// "Ali Khan Raza" -> firstName "Ali", lastName "Khan Raza"
+const splitName = (full: string) => {
+  const [firstName = "", ...rest] = full.trim().split(/\s+/);
+  return { firstName, lastName: rest.join(" ") };
+};
+
 export default function Profile() {
   const [form, setForm] = useState<Record<string, string>>(emptyForm);
   const [submitted, setSubmitted] = useState<boolean>(false);
@@ -85,20 +91,26 @@ export default function Profile() {
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
 
-  // name + email shown at the top of the panel
-  const [profileInfo, setProfileInfo] = useState({
+  // name + email + photo shown at the top of the panel
+  const [profileInfo, setProfileInfo] = useState<{
+    name: string;
+    email: string;
+    avatar: string | null;
+  }>({
     name: "",
     email: "",
+    avatar: null,
   });
 
   // Page khulte hi asli profile backend se laao
   useEffect(() => {
     getMyProfile()
-      .then((data) => {
-        const p = data.user ?? data;
-        const name = `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim();
-        const email = p.email ?? "";
-        setProfileInfo({ name, email });
+      .then((res) => {
+        // Backend ka jawab { message, data: {...} } ki shakal ma aata hai
+        const p = res?.data ?? res?.user ?? res;
+        const name = `${p?.firstName ?? ""} ${p?.lastName ?? ""}`.trim();
+        const email = p?.email ?? "";
+        setProfileInfo({ name, email, avatar: p?.avatarUrl ?? null });
         setForm((prev) => ({ ...prev, fullName: name, email }));
       })
       .catch((err) => setErrorMsg((err as Error).message));
@@ -107,16 +119,19 @@ export default function Profile() {
   const setField = (key: string, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  const changingPassword =
+    form.oldPassword !== "" ||
+    form.newPassword !== "" ||
+    form.confirmPassword !== "";
+
   // true when this field is not valid. Passwords are optional: leave all three empty to keep the old one.
   const isInvalid = (key: string): boolean => {
     if (key === "fullName" || key === "email") return form[key].trim() === "";
-    const changingPassword =
-      form.oldPassword !== "" ||
-      form.newPassword !== "" ||
-      form.confirmPassword !== "";
     if (!changingPassword) return false;
     if (key === "confirmPassword")
-      return form.confirmPassword !== form.newPassword;
+      return (
+        form.confirmPassword === "" || form.confirmPassword !== form.newPassword
+      );
     return form[key] === "";
   };
 
@@ -135,16 +150,60 @@ export default function Profile() {
     ];
     if (keys.some(isInvalid)) return;
 
-    const [firstName, ...rest] = form.fullName.trim().split(" ");
-    const lastName = rest.join(" ");
+    // Sirf wahi fields bhejo jo badli hain
+    const newName = splitName(form.fullName);
+    const oldName = splitName(profileInfo.name);
+    const newEmail = form.email.trim();
+
+    const changes: { firstName?: string; lastName?: string; email?: string } =
+      {};
+    if (newName.firstName !== oldName.firstName)
+      changes.firstName = newName.firstName;
+    if (newName.lastName !== oldName.lastName && newName.lastName !== "")
+      changes.lastName = newName.lastName;
+    if (newEmail !== profileInfo.email) changes.email = newEmail;
+
+    const profileChanged = Object.keys(changes).length > 0;
+
+    if (!profileChanged && !changingPassword) {
+      setErrorMsg("No changes to update");
+      return;
+    }
 
     try {
       setLoading(true);
-      await updateMyProfile({
-        firstName,
-        lastName: lastName || undefined,
-        email: form.email.trim(),
-      });
+
+      if (profileChanged) {
+        await updateMyProfile(changes);
+        // Header (top-right) ko batao ke naam/email badal gaya
+        window.dispatchEvent(new Event("profile-updated"));
+      }
+
+      if (changingPassword) {
+        try {
+          await updatePassword({
+            currentPassword: form.oldPassword,
+            newPassword: form.newPassword,
+            confirmPassword: form.confirmPassword,
+          });
+        } catch (err) {
+          // Profile save ho chuki hai, sirf password fail hua
+          if (profileChanged) {
+            setProfileInfo((prev) => ({
+              ...prev,
+              name: form.fullName.trim(),
+              email: newEmail,
+            }));
+          }
+          setErrorMsg(
+            profileChanged
+              ? `Profile updated, but password was not changed: ${(err as Error).message}`
+              : (err as Error).message,
+          );
+          return;
+        }
+      }
+
       setSuccessOpen(true);
     } catch (err) {
       setErrorMsg((err as Error).message);
@@ -167,7 +226,7 @@ export default function Profile() {
   const handleOkay = () => {
     const name = form.fullName.trim();
     const email = form.email.trim();
-    setProfileInfo({ name, email });
+    setProfileInfo((prev) => ({ ...prev, name, email }));
     setSuccessOpen(false);
     setSubmitted(false);
     setForm({ ...emptyForm, fullName: name, email });
@@ -212,7 +271,11 @@ export default function Profile() {
               height: u(101),
             }}
           >
-            <img src={alexa} alt={profileInfo.name} style={circleImg("100%")} />
+            <img
+              src={profileInfo.avatar || alexa}
+              alt={profileInfo.name}
+              style={circleImg("100%")}
+            />
             <Box
               style={{
                 position: "absolute",

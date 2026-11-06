@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Box,
   Flex,
+  Loader,
   Modal,
   Select,
   Text,
@@ -14,6 +15,7 @@ import { MdOutlineVerified } from "react-icons/md";
 
 import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
+import { getMyProfile, getNotifications, sendNotification } from "../api";
 
 /* ---------------- colors ---------------- */
 const C = {
@@ -27,52 +29,55 @@ const C = {
   muted: "#C9C3B6",
 };
 
-/* ---------------- data (baad mein API se aayega) ---------------- */
+/* ---------------- types ---------------- */
 type NotificationItem = {
-  id: number;
+  id: string;
   title: string;
   message: string;
   date: string;
 };
 
-const NEW_AUTHOR =
-  "Andy Weir purchase the pro plan. Now able to use this platform";
-const SIGNED_BOOK =
-  "\u201CThings Fall a Part\u201D book signed by Andy Weir for reader Lisa smith.";
-const AUTOGRAPH_REQ = "Lisa request to author dinal.";
-const DATE = "23 Jul, 2026";
-
-const notifications: NotificationItem[] = [
-  { id: 1, title: "New Author Available", message: NEW_AUTHOR, date: DATE },
-  { id: 2, title: "Signed Book Available", message: SIGNED_BOOK, date: DATE },
-  {
-    id: 3,
-    title: "Lisa Area Request for Autograph",
-    message: AUTOGRAPH_REQ,
-    date: DATE,
-  },
-  { id: 4, title: "Signed Book Available", message: SIGNED_BOOK, date: DATE },
-  {
-    id: 5,
-    title: "Lisa Area Request for Autograph",
-    message: AUTOGRAPH_REQ,
-    date: DATE,
-  },
-  { id: 6, title: "New Author Available", message: NEW_AUTHOR, date: DATE },
-  { id: 7, title: "Signed copy Ready", message: NEW_AUTHOR, date: DATE },
-  // neeche ke 3 items sirf page 2 dikhane ke liye hain (asli data mein zaroorat nahi)
-  { id: 8, title: "New Author Available", message: NEW_AUTHOR, date: DATE },
-  { id: 9, title: "Signed Book Available", message: SIGNED_BOOK, date: DATE },
-  {
-    id: 10,
-    title: "Lisa Area Request for Autograph",
-    message: AUTOGRAPH_REQ,
-    date: DATE,
-  },
-];
-
 /** ek page par kitni notifications dikhani hain (design mein 7) */
 const PAGE_SIZE = 7;
+
+/** Dropdown ke options -> backend ki recipientType */
+const RECIPIENTS = [
+  { value: "AUTHOR", label: "Authors" },
+  { value: "READER", label: "Readers" },
+  { value: "ALL", label: "All Users" },
+];
+
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function formatDate(value: unknown) {
+  if (!value) return "-";
+  const d = new Date(String(value));
+  if (isNaN(d.getTime())) return "-";
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}, ${d.getFullYear()}`;
+}
+
+// Backend ki notification -> page ki row (kai field names sambhalta hai)
+function toItem(n: any, index: number): NotificationItem {
+  return {
+    id: String(n.id ?? index),
+    title: n.title ?? "-",
+    message: n.message ?? n.body ?? n.content ?? "",
+    date: formatDate(n.createdAt ?? n.date ?? n.updatedAt),
+  };
+}
 
 /* ---------------- shared styles ---------------- */
 const searchInputStyles = {
@@ -109,14 +114,59 @@ const labelStyle = {
 
 /* ================= SCREEN 1: All Notifications ================= */
 
-function NotificationList({ onSend }: { onSend: () => void }) {
-  // ---------- Pagination ----------
+function NotificationList({
+  onSend,
+  canSend,
+}: {
+  onSend: () => void;
+  canSend: boolean;
+}) {
+  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const totalPages = Math.ceil(notifications.length / PAGE_SIZE);
-  const start = (page - 1) * PAGE_SIZE;
-  const currentNotifications = notifications.slice(start, start + PAGE_SIZE);
-  // --------------------------------
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const res: any = await getNotifications(page, PAGE_SIZE);
+        const list: any[] = Array.isArray(res)
+          ? res
+          : (res?.data ?? res?.items ?? res?.notifications ?? []);
+
+        if (!cancelled) {
+          setItems(list.map(toItem));
+          setTotalPages(Math.max(1, res?.pagination?.totalPages ?? 1));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Something went wrong");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [page]);
+
+  // Search sirf current page ki notifications par chalta hai
+  const query = search.trim().toLowerCase();
+  const visible = items.filter(
+    (n) =>
+      !query ||
+      `${n.title} ${n.message} ${n.date}`.toLowerCase().includes(query),
+  );
 
   return (
     <>
@@ -133,7 +183,7 @@ function NotificationList({ onSend }: { onSend: () => void }) {
           boxSizing: "border-box",
         }}
       >
-        {/* Title + search + send button */}
+        {/* Title + search + send button (send button sirf admin ko) */}
         <Flex align="center" justify="space-between" style={{ flexShrink: 0 }}>
           <Text
             fw={600}
@@ -146,32 +196,36 @@ function NotificationList({ onSend }: { onSend: () => void }) {
           <Flex align="center" gap={20}>
             <TextInput
               placeholder="Search"
+              value={search}
+              onChange={(e) => setSearch(e.currentTarget.value)}
               leftSection={<FaSearch size={13} color={C.cream} />}
               styles={searchInputStyles}
             />
 
-            <UnstyledButton
-              className="action"
-              onClick={onSend}
-              style={{
-                width: 190,
-                height: 40,
-                borderRadius: 999,
-                background: C.brown,
-                color: C.white,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text
-                size="15px"
-                fw={600}
-                style={{ lineHeight: 1, whiteSpace: "nowrap" }}
+            {canSend && (
+              <UnstyledButton
+                className="action"
+                onClick={onSend}
+                style={{
+                  width: 190,
+                  height: 40,
+                  borderRadius: 999,
+                  background: C.brown,
+                  color: C.white,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
               >
-                Send Notifications
-              </Text>
-            </UnstyledButton>
+                <Text
+                  size="15px"
+                  fw={600}
+                  style={{ lineHeight: 1, whiteSpace: "nowrap" }}
+                >
+                  Send Notifications
+                </Text>
+              </UnstyledButton>
+            )}
           </Flex>
         </Flex>
 
@@ -188,59 +242,85 @@ function NotificationList({ onSend }: { onSend: () => void }) {
             gridTemplateRows: `repeat(${PAGE_SIZE}, minmax(clamp(54px, 9vh, 84px), 1fr))`,
           }}
         >
-          {currentNotifications.map((item) => (
-            <Box
-              key={item.id}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                borderBottom: `1px solid ${C.border}`,
-              }}
+          {loading ? (
+            <Flex justify="center" pt="xl" style={{ gridRow: "1 / -1" }}>
+              <Loader color={C.cream} size="sm" />
+            </Flex>
+          ) : error ? (
+            <Text
+              ta="center"
+              c="#FF6B6B"
+              size="sm"
+              pt="xl"
+              style={{ gridRow: "1 / -1" }}
             >
-              <Text
-                fw={700}
-                c={C.cream}
+              {error}
+            </Text>
+          ) : visible.length === 0 ? (
+            <Text
+              ta="center"
+              c={C.muted}
+              size="sm"
+              pt="xl"
+              style={{ gridRow: "1 / -1" }}
+            >
+              No notifications found.
+            </Text>
+          ) : (
+            visible.map((item) => (
+              <Box
+                key={item.id}
                 style={{
-                  fontSize: "clamp(13px, 2.1vh, 18px)",
-                  lineHeight: 1.1,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                  borderBottom: `1px solid ${C.border}`,
                 }}
               >
-                {item.title}
-              </Text>
-
-              <Flex
-                align="center"
-                justify="space-between"
-                gap={16}
-                pr={16}
-                style={{ marginTop: "clamp(4px, 0.9vh, 10px)" }}
-              >
                 <Text
-                  c={C.muted}
+                  fw={700}
+                  c={C.cream}
                   style={{
-                    fontSize: "clamp(11px, 1.8vh, 15px)",
-                    lineHeight: 1.2,
-                    flex: 1,
-                    minWidth: 0,
+                    fontSize: "clamp(13px, 2.1vh, 18px)",
+                    lineHeight: 1.1,
                   }}
                 >
-                  {item.message}
+                  {item.title}
                 </Text>
 
-                <Text
-                  c={C.white}
-                  style={{
-                    fontSize: "clamp(11px, 1.8vh, 15px)",
-                    lineHeight: 1.2,
-                    whiteSpace: "nowrap",
-                  }}
+                <Flex
+                  align="center"
+                  justify="space-between"
+                  gap={16}
+                  pr={16}
+                  style={{ marginTop: "clamp(4px, 0.9vh, 10px)" }}
                 >
-                  {item.date}
-                </Text>
-              </Flex>
-            </Box>
-          ))}
+                  <Text
+                    c={C.muted}
+                    style={{
+                      fontSize: "clamp(11px, 1.8vh, 15px)",
+                      lineHeight: 1.2,
+                      flex: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    {item.message}
+                  </Text>
+
+                  <Text
+                    c={C.white}
+                    style={{
+                      fontSize: "clamp(11px, 1.8vh, 15px)",
+                      lineHeight: 1.2,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {item.date}
+                  </Text>
+                </Flex>
+              </Box>
+            ))
+          )}
         </Box>
       </Box>
 
@@ -249,29 +329,49 @@ function NotificationList({ onSend }: { onSend: () => void }) {
   );
 }
 
-/* ================= SCREEN 2: Send Notification form ================= */
+/* ================= SCREEN 2: Send Notification form (sirf admin) ================= */
 
 function SendForm({
   onCancel,
   onSent,
 }: {
   onCancel: () => void;
-  onSent: () => void;
+  onSent: (count: number | null) => void;
 }) {
   const [recipient, setRecipient] = useState<string | null>(null);
   const [title, setTitle] = useState<string>("");
   const [message, setMessage] = useState<string>("");
   const [submitted, setSubmitted] = useState<boolean>(false);
+  const [sending, setSending] = useState<boolean>(false);
+  const [sendError, setSendError] = useState<string>("");
 
   const recipientError = submitted && !recipient;
   const titleError = submitted && title.trim() === "";
   const messageError = submitted && message.trim() === "";
 
-  const handleSend = () => {
+  const handleSend = async () => {
     setSubmitted(true);
+    setSendError("");
     if (!recipient || title.trim() === "" || message.trim() === "") return;
-    // TODO: yahan API call lagao (recipient, title, message)
-    onSent(); // SCREEN 3 (popup) khol do
+    if (sending) return;
+
+    try {
+      setSending(true);
+      const res = await sendNotification({
+        recipientType: recipient,
+        title: title.trim(),
+        message: message.trim(),
+      });
+      onSent(
+        typeof res?.recipientCount === "number" ? res.recipientCount : null,
+      );
+    } catch (err) {
+      setSendError(
+        err instanceof Error ? err.message : "Could not send notification",
+      );
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -294,7 +394,7 @@ function SendForm({
         c={C.cream}
         style={{ fontSize: "clamp(20px, 3.4vh, 28px)", lineHeight: 1 }}
       >
-        Add Plan
+        Send Notification
       </Text>
 
       <Text c={C.cream} fw={600} style={labelStyle}>
@@ -303,7 +403,7 @@ function SendForm({
       <Select
         aria-label="Recipients"
         placeholder="Authors"
-        data={["Authors", "Readers", "All Users"]}
+        data={RECIPIENTS}
         value={recipient}
         onChange={setRecipient}
         withCheckIcon={false}
@@ -347,6 +447,12 @@ function SendForm({
         }}
       />
 
+      {sendError && (
+        <Text c="#FF6B6B" size="sm" mt={10}>
+          {sendError}
+        </Text>
+      )}
+
       {/* Buttons panel ke bottom par */}
       <Flex
         gap={20}
@@ -355,6 +461,7 @@ function SendForm({
         <UnstyledButton
           className="action"
           onClick={handleSend}
+          disabled={sending}
           style={{
             width: 210,
             height: "clamp(38px, 5vh, 44px)",
@@ -364,6 +471,7 @@ function SendForm({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            opacity: sending ? 0.6 : 1,
           }}
         >
           <Text
@@ -371,7 +479,7 @@ function SendForm({
             fw={500}
             style={{ lineHeight: 1, whiteSpace: "nowrap" }}
           >
-            Send Notifications
+            {sending ? "Sending..." : "Send Notifications"}
           </Text>
         </UnstyledButton>
 
@@ -406,9 +514,11 @@ function SendForm({
 
 function SentModal({
   opened,
+  count,
   onOkay,
 }: {
   opened: boolean;
+  count: number | null;
   onOkay: () => void;
 }) {
   return (
@@ -445,6 +555,12 @@ function SentModal({
           Notification has been sent successfully
         </Text>
 
+        {count !== null && (
+          <Text c="#51473B" ta="center" size="14px" mt={8}>
+            Sent to {count} {count === 1 ? "user" : "users"}
+          </Text>
+        )}
+
         <UnstyledButton
           className="action"
           onClick={onOkay}
@@ -476,15 +592,34 @@ type View = "list" | "send";
 export default function Notifications() {
   const [view, setView] = useState<View>("list");
   const [sentOpen, setSentOpen] = useState<boolean>(false);
+  const [sentCount, setSentCount] = useState<number | null>(null);
+
+  // Login karne wale ka role (ADMIN / AUTHOR / READER). Jab tak pata na chale null.
+  const [role, setRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    getMyProfile()
+      .then((res: any) => {
+        const r = res?.data?.role ?? res?.role ?? "";
+        setRole(String(r).toUpperCase());
+      })
+      .catch(() => setRole(""));
+  }, []);
+
+  const isAdmin = role === "ADMIN";
 
   // popup mein "Okay" dabane par popup band ho, aur wapas list par jao
+  // (list dobara khulti hai, is liye naya data khud mangwa leti hai)
   const handleOkay = () => {
     setSentOpen(false);
     setView("list");
   };
 
   return (
-    <ReaderLayout title="Notification Management" activePage="notifications">
+    <ReaderLayout
+      title={isAdmin ? "Notification Management" : "Notifications"}
+      activePage="notifications"
+    >
       <style>{`
         .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -495,16 +630,20 @@ export default function Notifications() {
         .np-option[data-combobox-selected="true"] { background: #45413D !important; }
       `}</style>
 
-      {view === "list" ? (
-        <NotificationList onSend={() => setView("send")} />
-      ) : (
+      {/* Send form sirf admin ke liye. Doosre roles hamesha list hi dekhte hain */}
+      {view === "send" && isAdmin ? (
         <SendForm
           onCancel={() => setView("list")}
-          onSent={() => setSentOpen(true)}
+          onSent={(count) => {
+            setSentCount(count);
+            setSentOpen(true);
+          }}
         />
+      ) : (
+        <NotificationList canSend={isAdmin} onSend={() => setView("send")} />
       )}
 
-      <SentModal opened={sentOpen} onOkay={handleOkay} />
+      <SentModal opened={sentOpen} count={sentCount} onOkay={handleOkay} />
     </ReaderLayout>
   );
 }

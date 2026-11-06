@@ -5,9 +5,14 @@ import { HiOutlineBadgeCheck } from "react-icons/hi";
 interface SuccessModalProps {
   opened: boolean;
   onClose: () => void;
+  message?: string;
 }
 
-export default function SuccessModal({ opened, onClose }: SuccessModalProps) {
+export default function SuccessModal({
+  opened,
+  onClose,
+  message = "User have been activated Successfully",
+}: SuccessModalProps) {
   return (
     <Modal
       opened={opened}
@@ -54,7 +59,7 @@ export default function SuccessModal({ opened, onClose }: SuccessModalProps) {
             marginBottom: "38px",
           }}
         >
-          User have been activated Successfully
+          {message}
         </Text>
 
         <Button
