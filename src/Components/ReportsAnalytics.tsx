@@ -8,25 +8,26 @@ import {
   Avatar,
   Select,
   Table,
+  Loader,
 } from "@mantine/core";
 
 import Highcharts from "highcharts";
 import HighchartsReactWrapper from "highcharts-react-official";
 
-const HighchartsReact =
-  (HighchartsReactWrapper as any)?.default || HighchartsReactWrapper;
-
-import {
-  FiTrendingUp,
-  FiTrendingDown,
-  FiBook,
-  FiUsers,
-  FiUserCheck,
-} from "react-icons/fi";
+import { FiBook, FiUsers, FiUserCheck } from "react-icons/fi";
 import { BiDollarCircle } from "react-icons/bi";
 
 import ReaderLayout from "./ReaderLayout";
-import authorimg from "../assets/Reader-image.png";
+import {
+  getDashboardOverview,
+  getDashboardUserGrowth,
+  getDashboardRevenueAnalytics,
+  getMonthlyAutographRequests,
+  getTopAuthors,
+} from "../api";
+
+const HighchartsReact =
+  (HighchartsReactWrapper as any)?.default || HighchartsReactWrapper;
 
 const cream = "#FFE8B6";
 const brown = "#98491F";
@@ -35,10 +36,98 @@ const panelBg = "#2B2828";
 const muted = "#A0A0A0";
 const numberColor = "#2A1005";
 
-const greenText = "#1A7F48";
-const greenBg = "rgba(26, 127, 72, 0.18)";
-const redText = "#C62828";
-const redBg = "rgba(198, 40, 40, 0.18)";
+// Paise ka nishan: Dashboard page ke saath match karne ke liye dollar.
+// Badalna ho to sirf yahan badlein (jaise "PKR" aur "Rupees").
+const CURRENCY = "$";
+const CURRENCY_NAME = "Dollars";
+
+/* ---------------- helpers ---------------- */
+
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+// "2026-11" -> "Nov"
+const monthShort = (m: string): string =>
+  MONTHS[Number(String(m).slice(5, 7)) - 1] ?? String(m);
+
+// "2026-11" -> "Nov 2026"
+const monthFull = (m: string): string =>
+  `${monthShort(m)} ${String(m).slice(0, 4)}`;
+
+// 1500 -> "1.5k", 80 -> "80"
+const axisNum = (v: number): string =>
+  v >= 1000 ? `${Number((v / 1000).toFixed(1))}k` : String(v);
+
+// "Iqra Baig" -> "IB"
+const initialsOf = (name: string): string =>
+  String(name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+
+type LoadState<T> = { loading: boolean; error: string; data: T | null };
+
+// Ek API call: loading / error / data teeno sambhalta hai. deps badle to dobara call.
+function useLoad<T>(fn: () => Promise<T>, deps: unknown[]): LoadState<T> {
+  const [state, setState] = useState<LoadState<T>>({
+    loading: true,
+    error: "",
+    data: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState((prev) => ({ ...prev, loading: true, error: "" }));
+
+    fn()
+      .then((data) => {
+        if (!cancelled) setState({ loading: false, error: "", data });
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setState({
+            loading: false,
+            error: err instanceof Error ? err.message : "Something went wrong",
+            data: null,
+          });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  return state;
+}
+
+// Response ma se list nikalna ({ data: [...] } ya seedha array)
+const pickList = (res: any): any[] =>
+  Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+
+// Tooltip ke andar hover hue point ka index (typing se bachne ke liye any use kiya hai)
+const idxOf = (ctx: any): number =>
+  ctx?.points?.[0]?.point?.index ??
+  ctx?.points?.[0]?.index ??
+  ctx?.point?.index ??
+  0;
+
+/* ---------------- chart box ---------------- */
 
 function ChartBox({ options }: { options: Highcharts.Options }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -75,283 +164,261 @@ function ChartBox({ options }: { options: Highcharts.Options }) {
   );
 }
 
-const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+// Chart ki jagah: loading / error / khali data / asli chart
+function ChartPanel({
+  loading,
+  error,
+  empty,
+  options,
+}: {
+  loading: boolean;
+  error: string;
+  empty: boolean;
+  options: Highcharts.Options;
+}) {
+  if (loading) {
+    return (
+      <Flex justify="center" align="center" style={{ flex: 1, minHeight: 90 }}>
+        <Loader color={cream} size="sm" />
+      </Flex>
+    );
+  }
+  if (error) {
+    return (
+      <Flex justify="center" align="center" style={{ flex: 1, minHeight: 90 }}>
+        <Text c="red.4" size="13px" ta="center">
+          {error}
+        </Text>
+      </Flex>
+    );
+  }
+  if (empty) {
+    return (
+      <Flex justify="center" align="center" style={{ flex: 1, minHeight: 90 }}>
+        <Text c={muted} size="13px">
+          No data available.
+        </Text>
+      </Flex>
+    );
+  }
+  return <ChartBox options={options} />;
+}
 
-const revenueOptions: Highcharts.Options = {
-  chart: {
-    type: "spline",
-    backgroundColor: "transparent",
-    spacing: [10, 5, 10, 5],
-  },
-  title: { text: undefined },
-  accessibility: { enabled: false },
-  xAxis: {
-    min: 0,
-    max: 10,
-    tickPositions: [0, 2, 4, 6, 8, 10],
-    labels: {
-      formatter: function () {
-        const index = Number(this.value) / 2;
-        return monthNames[index] || "";
-      },
-      style: { color: muted, fontSize: "11px" },
-    },
-    lineColor: "rgba(255,255,255,0.1)",
-    lineWidth: 1,
-    tickColor: "transparent",
-  },
-  yAxis: {
-    min: 0,
-    max: 100000,
-    tickInterval: 20000,
-    title: {
-      text: "Revenue (Dollars)",
-      style: { color: muted, fontSize: "10px" },
-    },
-    labels: {
-      formatter: function () {
-        if (this.value === 0) return "0";
-        return `${Number(this.value) / 1000}k`;
-      },
-      style: { color: muted, fontSize: "10px" },
-    },
-    gridLineColor: "rgba(255, 255, 255, 0.08)",
-  },
-  legend: {
-    align: "center",
-    verticalAlign: "bottom",
-    symbolWidth: 8,
-    symbolHeight: 8,
-    symbolRadius: 4,
-    itemStyle: { color: cream, fontSize: "11px", fontWeight: "400" },
-  },
-  credits: { enabled: false },
-  tooltip: {
-    shared: true,
-    backgroundColor: cream,
-    borderRadius: 6,
-    borderWidth: 0,
-    style: { color: numberColor, fontSize: "10px", fontWeight: "600" },
-    formatter: function () {
-      const pointX = this.points?.[0]?.x ?? 0;
-      const monthIndex = Math.round(Number(pointX) / 2);
-      const month = monthNames[monthIndex] || "";
+/* ---------------- chart options (asli data se bante hain) ---------------- */
 
-      let html = `<b>${month}</b>`;
-      this.points?.forEach((point) => {
-        html += `<br/><span style="color:${point.color}">●</span> ${
-          point.series.name
-        }: $${Number(point.y).toLocaleString()}`;
-      });
-      return html;
-    },
+const xAxisFor = (categories: string[]): Highcharts.XAxisOptions => ({
+  categories,
+  labels: { style: { color: muted, fontSize: "11px" } },
+  lineColor: "rgba(255,255,255,0.1)",
+  lineWidth: 1,
+  tickColor: "transparent",
+});
+
+const yAxisLabels: Highcharts.YAxisLabelsOptions = {
+  formatter: function () {
+    return axisNum(Number(this.value));
   },
-  plotOptions: {
-    spline: { lineWidth: 3, marker: { enabled: false } },
-    series: { animation: false },
-  },
-  series: [
-    {
-      type: "spline",
-      name: "Reader",
-      data: [
-        [0, 60000],
-        [1, 55000],
-        [2, 45000],
-        [3, 30000],
-        [4, 25000],
-        [5, 32000],
-        [6, 52000],
-        [7, 70000],
-        [8, 62000],
-        [9, 50000],
-        [10, 55000],
-      ],
-      color: brown,
-    },
-    {
-      type: "spline",
-      name: "Author",
-      data: [
-        [0, 15000],
-        [1, 25000],
-        [2, 38000],
-        [3, 44000],
-        [4, 45000],
-        [5, 42000],
-        [6, 40000],
-        [7, 37000],
-        [8, 36000],
-        [9, 38000],
-        [10, 37000],
-      ],
-      color: cream,
-    },
-  ],
+  style: { color: muted, fontSize: "10px" },
 };
 
-const growthOptions: Highcharts.Options = {
-  chart: {
-    type: "column",
-    backgroundColor: "transparent",
-    spacing: [10, 5, 10, 5],
-  },
-  title: { text: undefined },
-  accessibility: { enabled: false },
-  xAxis: {
-    categories: monthNames,
-    labels: { style: { color: muted, fontSize: "11px" } },
-    lineColor: "rgba(255,255,255,0.1)",
-    lineWidth: 1,
-    tickColor: "transparent",
-  },
-  yAxis: {
-    min: 0,
-    max: 100000,
-    tickInterval: 20000,
+function makeRevenueOptions(rows: any[]): Highcharts.Options {
+  const cats = rows.map((r) => monthShort(r.month));
+  const full = rows.map((r) => monthFull(r.month));
+
+  return {
+    chart: {
+      type: "spline",
+      backgroundColor: "transparent",
+      spacing: [10, 5, 10, 5],
+    },
     title: { text: undefined },
-    labels: {
-      formatter: function () {
-        if (this.value === 0) return "0";
-        return `${Number(this.value) / 1000}k`;
+    accessibility: { enabled: false },
+    xAxis: xAxisFor(cats),
+    yAxis: {
+      min: 0,
+      allowDecimals: false,
+      title: {
+        text: `Revenue (${CURRENCY_NAME})`,
+        style: { color: muted, fontSize: "10px" },
       },
-      style: { color: muted, fontSize: "10px" },
+      labels: yAxisLabels,
+      gridLineColor: "rgba(255, 255, 255, 0.08)",
     },
-    gridLineColor: "rgba(255, 255, 255, 0.08)",
-  },
-  legend: { enabled: false },
-  credits: { enabled: false },
-  plotOptions: {
-    column: {
-      stacking: "normal",
-      borderWidth: 0,
+    legend: {
+      align: "center",
+      verticalAlign: "bottom",
+      symbolWidth: 8,
+      symbolHeight: 8,
+      symbolRadius: 4,
+      itemStyle: { color: cream, fontSize: "11px", fontWeight: "400" },
+    },
+    credits: { enabled: false },
+    tooltip: {
+      shared: true,
+      backgroundColor: cream,
       borderRadius: 6,
-      pointWidth: 9,
-      groupPadding: 0.38,
-      pointPadding: 0,
-    },
-    series: { animation: false },
-  },
-  series: [
-    {
-      type: "column",
-      name: "Reader",
-      data: [16000, 12000, 17000, 16000, 14000, 15000],
-      color: brown,
-    },
-    {
-      type: "column",
-      name: "Gap",
-      data: [7000, 8000, 8000, 7000, 7000, 7000],
-      color: "transparent",
-      showInLegend: false,
-      enableMouseTracking: false,
-    },
-    {
-      type: "column",
-      name: "Author",
-      data: [31000, 50000, 42000, 34000, 26000, 40000],
-      color: cream,
-    },
-  ],
-};
-
-const autographOptions: Highcharts.Options = {
-  chart: {
-    type: "column",
-    backgroundColor: "transparent",
-    spacing: [10, 5, 10, 5],
-  },
-  title: { text: undefined },
-  accessibility: { enabled: false },
-  xAxis: {
-    categories: monthNames,
-    labels: { style: { color: muted, fontSize: "11px" } },
-    lineColor: "rgba(255,255,255,0.1)",
-    lineWidth: 1,
-    tickColor: "transparent",
-  },
-  yAxis: {
-    min: 0,
-    max: 100000,
-    tickInterval: 20000,
-    title: {
-      text: "Requests",
-      style: { color: muted, fontSize: "10px" },
-    },
-    labels: {
-      formatter: function () {
-        if (this.value === 0) return "0";
-        return `${Number(this.value) / 1000}k`;
-      },
-      style: { color: muted, fontSize: "10px" },
-    },
-    gridLineColor: "rgba(255, 255, 255, 0.08)",
-  },
-  legend: { enabled: false },
-  credits: { enabled: false },
-  tooltip: {
-    backgroundColor: cream,
-    borderRadius: 6,
-    borderWidth: 0,
-    style: { color: numberColor, fontSize: "10px", fontWeight: "600" },
-  },
-  plotOptions: {
-    column: {
       borderWidth: 0,
-      borderRadius: 4,
-      pointWidth: 9,
-      groupPadding: 0.2,
-      pointPadding: 0.1,
+      style: { color: numberColor, fontSize: "10px", fontWeight: "600" },
+      formatter: function () {
+        const idx = idxOf(this);
+        let html = `<b>${full[idx] ?? ""}</b>`;
+        this.points?.forEach((point) => {
+          html += `<br/><span style="color:${point.color}">●</span> ${
+            point.series.name
+          }: ${CURRENCY}${Number(point.y).toLocaleString()}`;
+        });
+        return html;
+      },
     },
-    series: { animation: false },
-  },
-  series: [
-    {
+    plotOptions: {
+      spline: { lineWidth: 3, marker: { enabled: false } },
+      series: { animation: false },
+    },
+    series: [
+      {
+        type: "spline",
+        name: "Reader",
+        data: rows.map((r) => Number(r.readerRevenue) || 0),
+        color: brown,
+      },
+      {
+        type: "spline",
+        name: "Author",
+        data: rows.map((r) => Number(r.authorRevenue) || 0),
+        color: cream,
+      },
+    ],
+  };
+}
+
+function makeGrowthOptions(rows: any[]): Highcharts.Options {
+  const cats = rows.map((r) => monthShort(r.month));
+  const full = rows.map((r) => monthFull(r.month));
+  const readers = rows.map((r) => Number(r.readers) || 0);
+  const authors = rows.map((r) => Number(r.authors) || 0);
+
+  // Dono ke beech design wali chhoti khali jagah (sirf jab dono ka data ho)
+  const maxTotal = Math.max(0, ...readers.map((v, i) => v + authors[i]));
+  const gapVal = maxTotal > 0 ? Math.max(1, Math.round(maxTotal * 0.06)) : 0;
+  const gaps = readers.map((v, i) => (v > 0 && authors[i] > 0 ? gapVal : 0));
+
+  return {
+    chart: {
       type: "column",
-      name: "Requests",
-      color: brown,
-      data: [65000, 40000, 50000, 40000, 50000, 70000],
+      backgroundColor: "transparent",
+      spacing: [10, 5, 10, 5],
     },
-  ],
-};
+    title: { text: undefined },
+    accessibility: { enabled: false },
+    xAxis: xAxisFor(cats),
+    yAxis: {
+      min: 0,
+      allowDecimals: false,
+      title: { text: undefined },
+      labels: yAxisLabels,
+      gridLineColor: "rgba(255, 255, 255, 0.08)",
+    },
+    legend: { enabled: false },
+    credits: { enabled: false },
+    tooltip: {
+      shared: true,
+      backgroundColor: cream,
+      borderRadius: 6,
+      borderWidth: 0,
+      style: { color: numberColor, fontSize: "10px", fontWeight: "600" },
+      formatter: function () {
+        const idx = idxOf(this);
+        let html = `<b>${full[idx] ?? ""}</b>`;
+        this.points?.forEach((point) => {
+          html += `<br/><span style="color:${point.color}">●</span> ${
+            point.series.name
+          }: ${Number(point.y).toLocaleString()}`;
+        });
+        return html;
+      },
+    },
+    plotOptions: {
+      column: {
+        stacking: "normal",
+        borderWidth: 0,
+        borderRadius: 6,
+        pointWidth: 9,
+        groupPadding: 0.38,
+        pointPadding: 0,
+      },
+      series: { animation: false },
+    },
+    series: [
+      { type: "column", name: "Reader", data: readers, color: brown },
+      {
+        type: "column",
+        name: "Gap",
+        data: gaps,
+        color: "transparent",
+        showInLegend: false,
+        enableMouseTracking: false,
+      },
+      { type: "column", name: "Author", data: authors, color: cream },
+    ],
+  };
+}
 
-const stats = [
-  {
-    title: "Total Revenue",
-    value: "$ 3,248",
-    change: "+15%",
-    positive: true,
-    Icon: BiDollarCircle,
-  },
-  {
-    title: "Signed Ebooks",
-    value: "243",
-    change: "-3.5%",
-    positive: false,
-    Icon: FiBook,
-  },
-  {
-    title: "Total Reader",
-    value: "3,455",
-    change: "+15%",
-    positive: true,
-    Icon: FiUsers,
-  },
-  {
-    title: "Total Authors",
-    value: "30",
-    change: "+5%",
-    positive: true,
-    Icon: FiUserCheck,
-  },
-];
+function makeRequestsOptions(rows: any[]): Highcharts.Options {
+  const cats = rows.map((r) => monthShort(r.month));
+  const full = rows.map((r) => monthFull(r.month));
 
-const artists = [
-  { id: "#1", name: "Cordell Edwards", requests: 235 },
-  { id: "#2", name: "Cordell Edwards", requests: 235 },
-  { id: "#3", name: "Cordell Edwards", requests: 235 },
-];
+  return {
+    chart: {
+      type: "column",
+      backgroundColor: "transparent",
+      spacing: [10, 5, 10, 5],
+    },
+    title: { text: undefined },
+    accessibility: { enabled: false },
+    xAxis: xAxisFor(cats),
+    yAxis: {
+      min: 0,
+      allowDecimals: false,
+      title: { text: "Requests", style: { color: muted, fontSize: "10px" } },
+      labels: yAxisLabels,
+      gridLineColor: "rgba(255, 255, 255, 0.08)",
+    },
+    legend: { enabled: false },
+    credits: { enabled: false },
+    tooltip: {
+      backgroundColor: cream,
+      borderRadius: 6,
+      borderWidth: 0,
+      style: { color: numberColor, fontSize: "10px", fontWeight: "600" },
+      formatter: function () {
+        const idx = idxOf(this);
+        return `<b>${full[idx] ?? ""}</b><br/>Requests: ${Number(
+          this.y,
+        ).toLocaleString()}`;
+      },
+    },
+    plotOptions: {
+      column: {
+        borderWidth: 0,
+        borderRadius: 4,
+        pointWidth: 9,
+        groupPadding: 0.2,
+        pointPadding: 0.1,
+      },
+      series: { animation: false },
+    },
+    series: [
+      {
+        type: "column",
+        name: "Requests",
+        color: brown,
+        data: rows.map((r) => Number(r.requests) || 0),
+      },
+    ],
+  };
+}
+
+/* ---------------- shared styles ---------------- */
 
 const thStyle = {
   color: cream,
@@ -387,7 +454,81 @@ const selectStyles = {
   },
 };
 
+const MONTH_CHOICES = [
+  { value: "6", label: "6 Months" },
+  { value: "12", label: "12 Months" },
+];
+
+/* ================= PAGE ================= */
+
 export default function ReportsAnalytics() {
+  // Dropdowns: Revenue aur Autograph chart ke mahine alag alag
+  const [revMonths, setRevMonths] = useState<number>(6);
+  const [reqMonths, setReqMonths] = useState<number>(6);
+
+  const overview = useLoad(() => getDashboardOverview(), []);
+  const growth = useLoad(() => getDashboardUserGrowth(6), []);
+  const topAuthors = useLoad(() => getTopAuthors(), []);
+  const revenue = useLoad(
+    () => getDashboardRevenueAnalytics(revMonths),
+    [revMonths],
+  );
+  const requests = useLoad(
+    () => getMonthlyAutographRequests(reqMonths),
+    [reqMonths],
+  );
+
+  /* ---- upar ke 4 cards (Dashboard Overview se) ---- */
+  const o: any = overview.data;
+  const num = (v: unknown) => Number(v ?? 0).toLocaleString();
+
+  const stats = [
+    {
+      title: "Total Revenue",
+      value: o ? `${CURRENCY} ${num(o.totalRevenue)}` : "-",
+      Icon: BiDollarCircle,
+    },
+    {
+      title: "Signed Ebooks",
+      value: o ? num(o.signedEbooks) : "-",
+      Icon: FiBook,
+    },
+    {
+      title: "Total Reader",
+      value: o ? num(o.totalReaders) : "-",
+      Icon: FiUsers,
+    },
+    {
+      title: "Total Authors",
+      value: o ? num(o.totalAuthors) : "-",
+      Icon: FiUserCheck,
+    },
+  ];
+
+  /* ---- charts ---- */
+  const revenueRows = pickList(revenue.data);
+  const growthRows = pickList(growth.data);
+  const requestRows = pickList(requests.data);
+
+  const revenueOptions = useMemo(
+    () => makeRevenueOptions(revenueRows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [revenue.data],
+  );
+  const growthOptions = useMemo(
+    () => makeGrowthOptions(growthRows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [growth.data],
+  );
+  const requestOptions = useMemo(
+    () => makeRequestsOptions(requestRows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [requests.data],
+  );
+
+  /* ---- Top Artist By Requests (sirf top 3) ---- */
+  const artists = pickList(topAuthors.data).slice(0, 3);
+
   return (
     <ReaderLayout title="Reports & Analytics" activePage="analytics">
       <Box
@@ -405,7 +546,7 @@ export default function ReportsAnalytics() {
         }}
       >
         <SimpleGrid cols={4} spacing="md" style={{ flexShrink: 0 }}>
-          {stats.map(({ title, value, change, positive, Icon }) => (
+          {stats.map(({ title, value, Icon }) => (
             <Box
               key={title}
               style={{
@@ -427,33 +568,15 @@ export default function ReportsAnalytics() {
 
                 <Icon size={18} color={numberColor} />
               </Group>
-
-              <Group gap={6} align="center" mt={6}>
-                <Box
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: "50%",
-                    backgroundColor: positive ? greenBg : redBg,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {positive ? (
-                    <FiTrendingUp size={11} color={greenText} />
-                  ) : (
-                    <FiTrendingDown size={11} color={redText} />
-                  )}
-                </Box>
-
-                <Text size="11px" fw={700} c={positive ? greenText : redText}>
-                  {change}
-                </Text>
-              </Group>
             </Box>
           ))}
         </SimpleGrid>
+
+        {overview.error && (
+          <Text c="red.4" size="12px" style={{ flexShrink: 0 }}>
+            {overview.error}
+          </Text>
+        )}
 
         <Box
           style={{
@@ -495,15 +618,21 @@ export default function ReportsAnalytics() {
 
                 <Select
                   size="xs"
-                  defaultValue="6 Months"
-                  data={["6 Months", "12 Months"]}
+                  value={String(revMonths)}
+                  onChange={(v) => v && setRevMonths(Number(v))}
+                  data={MONTH_CHOICES}
                   allowDeselect={false}
                   w={105}
                   styles={selectStyles}
                 />
               </Flex>
 
-              <ChartBox options={revenueOptions} />
+              <ChartPanel
+                loading={revenue.loading}
+                error={revenue.error}
+                empty={revenueRows.length === 0}
+                options={revenueOptions}
+              />
             </Box>
 
             <Box
@@ -524,7 +653,12 @@ export default function ReportsAnalytics() {
                 </Text>
               </Flex>
 
-              <ChartBox options={growthOptions} />
+              <ChartPanel
+                loading={growth.loading}
+                error={growth.error}
+                empty={growthRows.length === 0}
+                options={growthOptions}
+              />
             </Box>
           </SimpleGrid>
         </Box>
@@ -557,74 +691,96 @@ export default function ReportsAnalytics() {
               Top Artist By Requests
             </Text>
 
-            <Table
-              horizontalSpacing={0}
-              verticalSpacing={0}
-              style={{ tableLayout: "fixed", width: "100%" }}
-            >
-              <Table.Thead>
-                <Table.Tr style={{ borderBottom: "none" }}>
-                  <Table.Th style={{ ...thStyle, width: "20%" }}>
-                    Index
-                  </Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "42%" }}>
-                    Profile
-                  </Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "38%" }}>
-                    Sign Requests
-                  </Table.Th>
-                </Table.Tr>
-              </Table.Thead>
+            {topAuthors.loading ? (
+              <Flex justify="center" pt="md">
+                <Loader color={cream} size="sm" />
+              </Flex>
+            ) : topAuthors.error ? (
+              <Text c="red.4" size="13px">
+                {topAuthors.error}
+              </Text>
+            ) : artists.length === 0 ? (
+              <Text c={muted} size="13px">
+                No data available.
+              </Text>
+            ) : (
+              <Table
+                horizontalSpacing={0}
+                verticalSpacing={0}
+                style={{ tableLayout: "fixed", width: "100%" }}
+              >
+                <Table.Thead>
+                  <Table.Tr style={{ borderBottom: "none" }}>
+                    <Table.Th style={{ ...thStyle, width: "20%" }}>
+                      Index
+                    </Table.Th>
+                    <Table.Th style={{ ...thStyle, width: "42%" }}>
+                      Profile
+                    </Table.Th>
+                    <Table.Th style={{ ...thStyle, width: "38%" }}>
+                      Sign Requests
+                    </Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
 
-              <Table.Tbody>
-                {artists.map((artist) => (
-                  <Table.Tr key={artist.id} style={{ borderBottom: "none" }}>
-                    <Table.Td
-                      py={6}
-                      fw={700}
-                      c="#FFE8B6"
-                      style={{ ...tdStyle, fontSize: "13px" }}
+                <Table.Tbody>
+                  {artists.map((artist: any, i: number) => (
+                    <Table.Tr
+                      key={artist.index ?? i}
+                      style={{ borderBottom: "none" }}
                     >
-                      {artist.id}
-                    </Table.Td>
+                      <Table.Td
+                        py={6}
+                        fw={700}
+                        c="#FFE8B6"
+                        style={{ ...tdStyle, fontSize: "13px" }}
+                      >
+                        #{artist.index ?? i + 1}
+                      </Table.Td>
 
-                    <Table.Td py={6} style={tdStyle}>
-                      <Group gap={8} wrap="nowrap">
-                        <Avatar src={authorimg} size={28} radius="xl" />
+                      <Table.Td py={6} style={tdStyle}>
+                        <Group gap={8} wrap="nowrap">
+                          {/* photo/email abhi API ma nahi, isliye naam ke letters */}
+                          <Avatar
+                            size={28}
+                            radius="xl"
+                            styles={{
+                              placeholder: {
+                                backgroundColor: cream,
+                                color: "#6A4335",
+                                fontWeight: 700,
+                                fontSize: 11,
+                              },
+                            }}
+                          >
+                            {initialsOf(artist.authorName)}
+                          </Avatar>
 
-                        <Box style={{ minWidth: 0 }}>
                           <Text
                             size="12px"
                             fw={500}
                             c="#FFFFFF"
+                            truncate
                             style={{ lineHeight: 1.2 }}
                           >
-                            {artist.name}
+                            {artist.authorName}
                           </Text>
+                        </Group>
+                      </Table.Td>
 
-                          <Text
-                            size="10px"
-                            c="#C9C9C9"
-                            style={{ lineHeight: 1.2 }}
-                          >
-                            Edwards@gmail.com
-                          </Text>
-                        </Box>
-                      </Group>
-                    </Table.Td>
-
-                    <Table.Td
-                      py={6}
-                      fw={500}
-                      c="#E0E0E0"
-                      style={{ ...tdStyle, fontSize: "12px" }}
-                    >
-                      {artist.requests}
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+                      <Table.Td
+                        py={6}
+                        fw={500}
+                        c="#E0E0E0"
+                        style={{ ...tdStyle, fontSize: "12px" }}
+                      >
+                        {Number(artist.totalRequests ?? 0).toLocaleString()}
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            )}
           </Box>
 
           <Box
@@ -651,15 +807,21 @@ export default function ReportsAnalytics() {
 
               <Select
                 size="xs"
-                defaultValue="6 Months"
-                data={["6 Months", "12 Months"]}
+                value={String(reqMonths)}
+                onChange={(v) => v && setReqMonths(Number(v))}
+                data={MONTH_CHOICES}
                 allowDeselect={false}
                 w={105}
                 styles={selectStyles}
               />
             </Flex>
 
-            <ChartBox options={autographOptions} />
+            <ChartPanel
+              loading={requests.loading}
+              error={requests.error}
+              empty={requestRows.length === 0}
+              options={requestOptions}
+            />
           </Box>
         </SimpleGrid>
       </Box>

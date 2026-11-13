@@ -15,6 +15,7 @@ import { MdOutlineVerified } from "react-icons/md";
 
 import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
+import { useLayoutSearch } from "./SearchContext";
 import { getMyProfile, getNotifications, sendNotification } from "../api";
 
 /* ---------------- colors ---------------- */
@@ -39,6 +40,10 @@ type NotificationItem = {
 
 /** ek page par kitni notifications dikhani hain (design mein 7) */
 const PAGE_SIZE = 7;
+
+/** Search karte waqt kitni notifications ek saath mangwa kar filter karni hain.
+ *  Agar backend "limit" ke upar error de to is ko kam kar dein (jaise 50). */
+const SEARCH_LIMIT = 100;
 
 /** Dropdown ke options -> backend ki recipientType */
 const RECIPIENTS = [
@@ -77,6 +82,13 @@ function toItem(n: any, index: number): NotificationItem {
     message: n.message ?? n.body ?? n.content ?? "",
     date: formatDate(n.createdAt ?? n.date ?? n.updatedAt),
   };
+}
+
+// Response ma se list nikalna (data / items / notifications / seedha array)
+function pickList(res: any): any[] {
+  return Array.isArray(res)
+    ? res
+    : (res?.data ?? res?.items ?? res?.notifications ?? []);
 }
 
 /* ---------------- shared styles ---------------- */
@@ -128,6 +140,15 @@ function NotificationList({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Top bar ki search bhi chalti hai; page ki apni box mein likha ho to wo pehle
+  const layoutSearch = useLayoutSearch();
+  const query = (search.trim() || layoutSearch).toLowerCase();
+
+  // Search badle to page 1 par wapas
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -136,14 +157,28 @@ function NotificationList({
         setLoading(true);
         setError("");
 
-        const res: any = await getNotifications(page, PAGE_SIZE);
-        const list: any[] = Array.isArray(res)
-          ? res
-          : (res?.data ?? res?.items ?? res?.notifications ?? []);
+        if (query) {
+          // Search: zyada notifications mangwa kar yahin filter karte hain,
+          // phir 7-7 ke pages mein bantte hain
+          const res: any = await getNotifications(1, SEARCH_LIMIT);
+          const matches = pickList(res)
+            .map(toItem)
+            .filter((n) =>
+              `${n.title} ${n.message} ${n.date}`.toLowerCase().includes(query),
+            );
 
-        if (!cancelled) {
-          setItems(list.map(toItem));
-          setTotalPages(Math.max(1, res?.pagination?.totalPages ?? 1));
+          if (!cancelled) {
+            setTotalPages(Math.max(1, Math.ceil(matches.length / PAGE_SIZE)));
+            setItems(matches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE));
+          }
+        } else {
+          // Normal: backend ki pagination
+          const res: any = await getNotifications(page, PAGE_SIZE);
+
+          if (!cancelled) {
+            setItems(pickList(res).map(toItem));
+            setTotalPages(Math.max(1, res?.pagination?.totalPages ?? 1));
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -158,15 +193,7 @@ function NotificationList({
     return () => {
       cancelled = true;
     };
-  }, [page]);
-
-  // Search sirf current page ki notifications par chalta hai
-  const query = search.trim().toLowerCase();
-  const visible = items.filter(
-    (n) =>
-      !query ||
-      `${n.title} ${n.message} ${n.date}`.toLowerCase().includes(query),
-  );
+  }, [page, query]);
 
   return (
     <>
@@ -256,7 +283,7 @@ function NotificationList({
             >
               {error}
             </Text>
-          ) : visible.length === 0 ? (
+          ) : items.length === 0 ? (
             <Text
               ta="center"
               c={C.muted}
@@ -267,7 +294,7 @@ function NotificationList({
               No notifications found.
             </Text>
           ) : (
-            visible.map((item) => (
+            items.map((item) => (
               <Box
                 key={item.id}
                 style={{

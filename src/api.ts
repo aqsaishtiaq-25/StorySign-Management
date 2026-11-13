@@ -81,6 +81,33 @@ export async function updateMyProfile(data: {
   return handle(res, "Could not update profile");
 }
 
+// ---------- Profile photo ----------
+// ZAROORI: Postman ("Update user Profile" > Body > form-data) ma file ki key ka
+// jo naam chale, wahi yahan likhein (avatar / file / image).
+export const AVATAR_FIELD = "file";
+export const AVATAR_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+export const AVATAR_MAX_MB = 2;
+
+// Backend poora link (https://...) de to waisa hi rahega; sirf path de to BASE_URL lag jata hai
+export function resolveAvatarUrl(url?: string | null): string | null {
+  if (!url) return null;
+  if (/^(https?:|data:|blob:)/i.test(url)) return url;
+  return `${BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+export async function updateMyAvatar(file: File) {
+  const token = localStorage.getItem("token");
+  const form = new FormData();
+  form.append(AVATAR_FIELD, file);
+  const res = await fetch(`${BASE_URL}/users/my`, {
+    method: "PATCH",
+    // Content-Type khud mat lagayein: browser multipart ki boundary khud banata hai
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  return handle(res, "Could not upload photo");
+}
+
 // ZAROORI: Postman ma "Update Password" ka URL dekh kar neeche wali line match karein
 const UPDATE_PASSWORD_URL = `${BASE_URL}/users/my/password`;
 
@@ -99,8 +126,9 @@ export async function updatePassword(data: {
 
 // ---------- Author Management ----------
 
-export async function getUsers(page = 1, limit = 100) {
-  const res = await fetch(`${BASE_URL}/users?page=${page}&limit=${limit}`, {
+export async function getUsers(page = 1, limit = 100, search = "") {
+  const q = search ? `&search=${encodeURIComponent(search)}` : "";
+  const res = await fetch(`${BASE_URL}/users?page=${page}&limit=${limit}${q}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load users");
@@ -264,11 +292,31 @@ export async function getDashboardUserGrowth(months = 6) {
   return handle(res, "Could not load user growth");
 }
 
-export async function getDashboardRevenueAnalytics() {
-  const res = await fetch(`${DASH_BASE}/revenue-analytics`, {
+// months na do to backend apna default (3 mahine) deta hai
+export async function getDashboardRevenueAnalytics(months?: number) {
+  const q = months ? `?months=${months}` : "";
+  const res = await fetch(`${DASH_BASE}/revenue-analytics${q}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load revenue analytics");
+}
+
+// ---------- Reports & Analytics page ----------
+export async function getMonthlyAutographRequests(months = 6) {
+  const res = await fetch(
+    `${DASH_BASE}/monthly-autograph-requests?months=${months}`,
+    { headers: authHeaders() },
+  );
+  return handle(res, "Could not load autograph requests");
+}
+
+// ZAROORI: Postman ma "Top Authors list with highest autograph..." ka URL dekh kar
+// neeche wali line match karein ({{baseUrl}} ke baad wala hissa)
+const TOP_AUTHORS_URL = `${DASH_BASE}/top-authors`;
+
+export async function getTopAuthors() {
+  const res = await fetch(TOP_AUTHORS_URL, { headers: authHeaders() });
+  return handle(res, "Could not load top authors");
 }
 
 // ---------- Support Queries ----------
@@ -467,10 +515,11 @@ export type ReaderStats = {
   suspendedReaders?: number;
 };
 
-export async function getReaders(page = 1, limit = 5) {
-  // role=READER pehle, phir page/limit -- sab '&' se jore hain (sirf ek '?')
+export async function getReaders(page = 1, limit = 5, search = "") {
+  // role=READER pehle, phir page/limit/search -- sab '&' se jore hain (sirf ek '?')
+  const q = search ? `&search=${encodeURIComponent(search)}` : "";
   const res = await fetch(
-    `${READERS_URL}?role=READER&page=${page}&limit=${limit}`,
+    `${READERS_URL}?role=READER&page=${page}&limit=${limit}${q}`,
     { headers: authHeaders() },
   );
   return handle(res, "Could not load readers");
