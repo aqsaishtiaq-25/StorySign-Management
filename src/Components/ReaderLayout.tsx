@@ -32,8 +32,8 @@ import {
 import { BiLogOut, BiDollarCircle, BiLineChart } from "react-icons/bi";
 
 import logo from "../assets/logo.png";
-import profileImg from "../assets/image.jpg";
-import { getMyProfile } from "../api";
+import { getMyProfile, resolveAvatarUrl } from "../api";
+import { SearchContext } from "./SearchContext.ts";
 
 interface ReaderLayoutProps {
   children: any;
@@ -55,12 +55,31 @@ interface ReaderLayoutProps {
     | "profile";
 }
 
+// "Admin Tester" -> "AT" (photo na ho to yeh dikhta hai)
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+
 export default function ReaderLayout({
   children,
   title,
   activePage = "reader",
 }: ReaderLayoutProps) {
   const navigate = useNavigate();
+
+  // Top search bar: user type kare, 400ms ruk kar value pages ko di jati hai
+  const [searchText, setSearchText] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchText.trim()), 400);
+    return () => clearTimeout(t);
+  }, [searchText]);
 
   // Top-right par dikhne wala login user (backend se aata hai)
   const [me, setMe] = useState<{
@@ -82,7 +101,7 @@ export default function ReaderLayout({
           setMe({
             name,
             email: p?.email ?? "",
-            avatar: p?.avatarUrl ?? null,
+            avatar: resolveAvatarUrl(p?.avatarUrl),
           });
         })
         .catch(() => {
@@ -355,6 +374,8 @@ export default function ReaderLayout({
           <Group gap={28} align="center">
             <TextInput
               placeholder="Search"
+              value={searchText}
+              onChange={(e) => setSearchText(e.currentTarget.value)}
               leftSection={<MdSearch size={18} color="#A0A0A0" />}
               styles={{
                 input: {
@@ -371,8 +392,21 @@ export default function ReaderLayout({
             />
 
             <Group gap="xs" align="center" style={{ width: 170 }}>
-              {/* avatarUrl na ho to purani default photo dikhao */}
-              <Avatar src={me.avatar || profileImg} size={36} radius="xl" />
+              {/* photo na ho to naam ke pehle letters dikhte hain */}
+              <Avatar
+                src={me.avatar || undefined}
+                size={36}
+                radius="xl"
+                styles={{
+                  placeholder: {
+                    backgroundColor: "#FFE8B6",
+                    color: "#6A4335",
+                    fontWeight: 700,
+                  },
+                }}
+              >
+                {initialsOf(me.name)}
+              </Avatar>
 
               <Box style={{ minWidth: 0 }}>
                 <Text
@@ -406,7 +440,9 @@ export default function ReaderLayout({
             flexDirection: "column",
           }}
         >
-          {children}
+          <SearchContext.Provider value={debouncedSearch}>
+            {children}
+          </SearchContext.Provider>
         </Box>
       </Box>
     </Flex>

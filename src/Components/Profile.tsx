@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import type { CSSProperties } from "react";
+import { useState, useEffect, useRef } from "react";
+import type { CSSProperties, ChangeEvent } from "react";
 import {
   Box,
   Flex,
@@ -12,8 +12,15 @@ import { FaPen, FaCamera } from "react-icons/fa";
 import { MdOutlineVerified } from "react-icons/md";
 
 import ReaderLayout from "./ReaderLayout";
-import alexa from "../assets/Readerimg.png"; // default photo (avatarUrl na ho to)
-import { getMyProfile, updateMyProfile, updatePassword } from "../api";
+import {
+  getMyProfile,
+  updateMyProfile,
+  updatePassword,
+  updateMyAvatar,
+  resolveAvatarUrl,
+  AVATAR_ALLOWED_TYPES,
+  AVATAR_MAX_MB,
+} from "../api";
 
 /**
  * SIZING
@@ -78,6 +85,16 @@ const emptyForm: Record<string, string> = {
   confirmPassword: "",
 };
 
+// "Admin Tester" -> "AT" (photo na ho to yeh dikhta hai)
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+
 // "Ali Khan Raza" -> firstName "Ali", lastName "Khan Raza"
 const splitName = (full: string) => {
   const [firstName = "", ...rest] = full.trim().split(/\s+/);
@@ -90,6 +107,11 @@ export default function Profile() {
   const [successOpen, setSuccessOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
+
+  // profile photo upload
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [preview, setPreview] = useState<string | null>(null);
 
   // name + email + photo shown at the top of the panel
   const [profileInfo, setProfileInfo] = useState<{
@@ -110,7 +132,11 @@ export default function Profile() {
         const p = res?.data ?? res?.user ?? res;
         const name = `${p?.firstName ?? ""} ${p?.lastName ?? ""}`.trim();
         const email = p?.email ?? "";
-        setProfileInfo({ name, email, avatar: p?.avatarUrl ?? null });
+        setProfileInfo({
+          name,
+          email,
+          avatar: resolveAvatarUrl(p?.avatarUrl),
+        });
         setForm((prev) => ({ ...prev, fullName: name, email }));
       })
       .catch((err) => setErrorMsg((err as Error).message));
@@ -212,6 +238,45 @@ export default function Profile() {
     }
   };
 
+  // Camera icon -> file chuno -> foran upload -> nayi photo dikhao
+  const handleAvatarPick = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = ""; // wahi file dobara chunni ho to bhi chale
+    if (!file) return;
+
+    setErrorMsg("");
+    if (!AVATAR_ALLOWED_TYPES.includes(file.type)) {
+      setErrorMsg("Please choose a JPG, PNG or WEBP image");
+      return;
+    }
+    if (file.size > AVATAR_MAX_MB * 1024 * 1024) {
+      setErrorMsg(`Image must be smaller than ${AVATAR_MAX_MB} MB`);
+      return;
+    }
+
+    const localUrl = URL.createObjectURL(file);
+    setPreview(localUrl); // upload hote hi foran nazar aaye
+    try {
+      setUploading(true);
+      await updateMyAvatar(file);
+      // Backend se asli (saved) photo ka link dobara lo
+      const res = await getMyProfile();
+      const p = res?.data ?? res?.user ?? res;
+      setProfileInfo((prev) => ({
+        ...prev,
+        avatar: resolveAvatarUrl(p?.avatarUrl),
+      }));
+      // Top-right ki photo bhi badal jaye
+      window.dispatchEvent(new Event("profile-updated"));
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setPreview(null);
+      URL.revokeObjectURL(localUrl);
+      setUploading(false);
+    }
+  };
+
   const handleCancel = () => {
     setSubmitted(false);
     setErrorMsg("");
@@ -271,13 +336,34 @@ export default function Profile() {
               height: u(101),
             }}
           >
-            <img
-              src={profileInfo.avatar || alexa}
-              alt={profileInfo.name}
-              style={circleImg("100%")}
-            />
-            <Box
+            {preview || profileInfo.avatar ? (
+              <img
+                src={preview || profileInfo.avatar || ""}
+                alt={profileInfo.name}
+                style={{ ...circleImg("100%"), opacity: uploading ? 0.6 : 1 }}
+              />
+            ) : (
+              <Box
+                style={{
+                  ...circleImg("100%"),
+                  background: C.active,
+                  color: C.cream,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: u(36),
+                  fontWeight: 700,
+                }}
+              >
+                {initialsOf(profileInfo.name)}
+              </Box>
+            )}
+            <UnstyledButton
+              aria-label="Change photo"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
               style={{
+                cursor: "pointer",
                 position: "absolute",
                 right: u(-2),
                 bottom: u(2),
@@ -292,7 +378,14 @@ export default function Profile() {
               }}
             >
               <Ico icon={FaCamera} n={11} min={7} />
-            </Box>
+            </UnstyledButton>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={handleAvatarPick}
+              style={{ display: "none" }}
+            />
           </Box>
 
           {/* name + email */}
