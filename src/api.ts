@@ -642,3 +642,101 @@ export async function cancelMySubscription() {
   });
   return handle(res, "Could not cancel your subscription");
 }
+
+// ---------- Autograph request helpers ----------
+export const requestStatus = (r: any): string =>
+  String(r?.status ?? "").toLowerCase();
+
+export const isPendingRequest = (r: any): boolean =>
+  requestStatus(r) === "pending";
+
+export const isSignedRequest = (r: any): boolean =>
+  !!r?.signedEbookUrl ||
+  ["signed", "delivered", "completed"].includes(requestStatus(r));
+
+// Saari requests 10-10 ki pages mein mangwata hai (limit ka masla nahi aata)
+export async function getAllAutographRequests(): Promise<any[]> {
+  const all: any[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const res: any = await getAutographRequests(page, 10);
+    const list = Array.isArray(res?.data)
+      ? res.data
+      : Array.isArray(res)
+        ? res
+        : [];
+    all.push(...list);
+    totalPages = res?.pagination?.totalPages ?? 1;
+    page += 1;
+  } while (page <= totalPages && page <= 30);
+
+  return all;
+}
+
+// ---------- Author actions on an autograph request ----------
+// ZAROORI: neeche ke URL Postman ki requests se milayein.
+const DEFAULT_AUTHOR_MESSAGE = "I have signed your ebook. Hope you like it.";
+
+export async function acceptAutographRequest(id: string) {
+  const res = await fetch(`${BASE_URL}/autograph-requests/${id}/accept`, {
+    method: "PATCH",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not accept the request");
+}
+
+export async function rejectAutographRequest(id: string) {
+  const res = await fetch(`${BASE_URL}/autograph-requests/${id}/reject`, {
+    method: "PATCH",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not reject the request");
+}
+
+export async function signAutographRequest(
+  id: string,
+  data: {
+    authorMessage: string;
+    signedEbookUrl: string;
+    paymentAmount?: number;
+  },
+) {
+  const res = await fetch(`${BASE_URL}/autograph-requests/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not sign the request");
+}
+
+// Maujooda autograph fee ke saath sign karta hai
+export async function signAutographRequestDefault(
+  id: string,
+  fileUrl: string,
+) {
+  let paymentAmount: number | undefined;
+  try {
+    const fee: any = await getCurrentAutographFee();
+    const amt = fee?.data?.amount ?? fee?.amount;
+    if (typeof amt === "number") paymentAmount = amt;
+  } catch {
+    paymentAmount = undefined;
+  }
+
+  return signAutographRequest(id, {
+    authorMessage: DEFAULT_AUTHOR_MESSAGE,
+    signedEbookUrl: fileUrl,
+    ...(paymentAmount !== undefined ? { paymentAmount } : {}),
+  });
+}
+
+// Unsigned ka endpoint mujhe nahi pata: Postman se isay milayein
+export async function unsignAutographRequest(id: string) {
+  const res = await fetch(`${BASE_URL}/autograph-requests/${id}/unsigned`, {
+    method: "PATCH",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not mark the request as unsigned");
+}

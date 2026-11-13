@@ -8,6 +8,7 @@ import {
   Stack,
   UnstyledButton,
   Loader,
+  Button,
 } from "@mantine/core";
 import { FaTrash } from "react-icons/fa";
 
@@ -18,7 +19,13 @@ import {
   deleteEbook,
   getEbookById,
   getUserById,
+  getMyProfile,
+  getAllAutographRequests,
+  signAutographRequestDefault,
+  unsignAutographRequest,
 } from "../api";
+
+type Busy = "" | "signed" | "unsigned";
 
 function formatDate(value: unknown) {
   if (!value) return "-";
@@ -36,6 +43,11 @@ function fullName(u: any) {
   return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
 }
 
+const isInProgress = (status: unknown) => {
+  const s = String(status ?? "").toUpperCase();
+  return s === "IN_PROGRESS" || s === "ACCEPTED";
+};
+
 export default function EbookDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -43,9 +55,14 @@ export default function EbookDetails() {
   const [ebook, setEbook] = useState<any>(null);
   const [reader, setReader] = useState<any>(null);
   const [author, setAuthor] = useState<any>(null);
+  const [me, setMe] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [busy, setBusy] = useState<Busy>("");
+  const [actionError, setActionError] = useState("");
 
   const innerBg = "#211E1E";
   const accent = "#FFE8B6";
@@ -55,38 +72,68 @@ export default function EbookDetails() {
     if (!id) return;
     let cancelled = false;
 
-    async function fetchUser(userId?: string) {
-      if (!userId) return null;
+    async function safe<T>(fn: () => Promise<T>) {
       try {
-        const u = await getUserById(userId);
-        return u.data ?? u;
+        return await fn();
       } catch {
         return null;
       }
     }
 
+    async function fetchUser(userId?: string) {
+      if (!userId) return null;
+      const u: any = await safe(() => getUserById(userId));
+      return u?.data ?? u ?? null;
+    }
+
     async function load() {
       try {
-        setLoading(true);
+        // Sirf pehli baar loader dikhao, action ke baad nahi
+        if (reloadKey === 0) setLoading(true);
         setError("");
 
-        const data = await getEbookById(id as string);
+        const res: any = await getEbookById(id as string);
+        const data = res?.data ?? res;
         if (cancelled) return;
         setEbook(data);
 
-        // Jis request par ebook sign hui (COMPLETED), warna pehli request
+        const meRes: any = await safe(() => getMyProfile());
+        const meData = meRes?.data ?? meRes?.user ?? meRes;
+
         const requests: any[] = data.autographRequests ?? [];
         const signedRequest =
           requests.find((r) => r.status === "COMPLETED") ?? requests[0];
 
-        const [readerData, authorData] = await Promise.all([
-          fetchUser(data.readerId),
-          fetchUser(signedRequest?.authorId),
-        ]);
+        // ---------- Reader ka naam ----------
+        let readerData: any =
+          data.reader ?? requests.find((r) => r.reader)?.reader ?? null;
+
+        if (!readerData && meData?.id && meData.id === data.readerId) {
+          readerData = meData;
+        }
+        if (!readerData) readerData = await fetchUser(data.readerId);
+        if (!readerData) {
+          const all: any[] =
+            (await safe(() => getAllAutographRequests())) ?? [];
+          readerData =
+            all.find((r) => r.ebookId === data.id && r.reader)?.reader ?? null;
+        }
+
+        // ---------- Author ka naam ----------
+        let authorData: any = signedRequest?.author ?? null;
+        if (
+          !authorData &&
+          meData?.id &&
+          meData.id === signedRequest?.authorId
+        ) {
+          authorData = meData;
+        }
+        if (!authorData) authorData = await fetchUser(signedRequest?.authorId);
 
         if (!cancelled) {
           setReader(readerData);
           setAuthor(authorData);
+          setMe(meData);
         }
       } catch (err) {
         if (!cancelled) {
@@ -101,9 +148,66 @@ export default function EbookDetails() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, reloadKey]);
 
-  // Pehle ebook ki autograph requests delete, phir ebook
+  const requests: any[] = ebook?.autographRequests ?? [];
+  const signedRequest =
+    requests.find((r) => r.status === "COMPLETED") ?? requests[0];
+
+  const role = String(me?.role ?? "").toUpperCase();
+  const isAdmin = role === "ADMIN";
+
+  // Is author ki wo request jo Accept ho chuki hai (In progress)
+  const myRequest =
+    role === "AUTHOR"
+      ? requests.find((r) => r.authorId === me?.id && isInProgress(r.status))
+      : undefined;
+
+  const isSigned = !!ebook?.isSigned;
+  const status = isSigned ? "Signed" : "Unsigned";
+
+  const signedBy = isSigned ? fullName(author) || "-" : "-";
+  const signedDate = isSigned ? formatDate(signedRequest?.updatedAt) : "-";
+  const authorMessage = signedRequest?.authorMessage ?? "";
+
+  const reload = () => setReloadKey((k) => k + 1);
+
+  const handleSigned = async () => {
+    if (!myRequest) return;
+
+    if (!ebook?.fileUrl) {
+      setActionError("This ebook has no file link to attach.");
+      return;
+    }
+
+    try {
+      setBusy("signed");
+      setActionError("");
+      await signAutographRequestDefault(myRequest.id, ebook.fileUrl);
+      reload();
+    } catch (err) {
+      setActionError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const handleUnsigned = async () => {
+    if (!myRequest) return;
+
+    try {
+      setBusy("unsigned");
+      setActionError("");
+      await unsignAutographRequest(myRequest.id);
+      reload();
+    } catch (err) {
+      setActionError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  // Pehle ebook ki autograph requests delete, phir ebook (sirf admin)
   const handleDelete = async () => {
     if (!id) return;
     if (
@@ -116,7 +220,6 @@ export default function EbookDetails() {
     try {
       setDeleting(true);
 
-      const requests: any[] = ebook?.autographRequests ?? [];
       for (const r of requests) {
         await deleteAutographRequest(r.id);
       }
@@ -129,18 +232,16 @@ export default function EbookDetails() {
     }
   };
 
-  const requests: any[] = ebook?.autographRequests ?? [];
-  const signedRequest =
-    requests.find((r) => r.status === "COMPLETED") ?? requests[0];
-
-  const isSigned = !!ebook?.isSigned;
-  const status = isSigned ? "Signed" : "Unsigned";
-
-  const signedBy = isSigned ? fullName(author) || "-" : "-";
-  const signedDate = isSigned ? formatDate(signedRequest?.updatedAt) : "-";
-  const authorMessage = signedRequest?.authorMessage ?? "";
-
   const deleteDisabled = deleting || !isSigned;
+  const actionDisabled = busy !== "";
+
+  const actionBtn = {
+    root: {
+      fontSize: "13px",
+      opacity: actionDisabled ? 0.4 : 1,
+      cursor: actionDisabled ? "not-allowed" : "pointer",
+    },
+  };
 
   return (
     <ReaderLayout title="Ebook Management" activePage="ebooks">
@@ -202,31 +303,33 @@ export default function EbookDetails() {
                     {ebook.title}
                   </Text>
 
-                  <UnstyledButton
-                    aria-label="Delete ebook"
-                    title={
-                      isSigned
-                        ? "Delete ebook"
-                        : "Admin can only delete signed ebooks"
-                    }
-                    onClick={handleDelete}
-                    disabled={deleteDisabled}
-                    style={{
-                      width: 36,
-                      height: 36,
-                      flexShrink: 0,
-                      borderRadius: "50%",
-                      backgroundColor: brown,
-                      color: accent,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      opacity: deleteDisabled ? 0.4 : 1,
-                      cursor: deleteDisabled ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    <FaTrash size={13} />
-                  </UnstyledButton>
+                  {isAdmin && (
+                    <UnstyledButton
+                      aria-label="Delete ebook"
+                      title={
+                        isSigned
+                          ? "Delete ebook"
+                          : "Admin can only delete signed ebooks"
+                      }
+                      onClick={handleDelete}
+                      disabled={deleteDisabled}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        flexShrink: 0,
+                        borderRadius: "50%",
+                        backgroundColor: brown,
+                        color: accent,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        opacity: deleteDisabled ? 0.4 : 1,
+                        cursor: deleteDisabled ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      <FaTrash size={13} />
+                    </UnstyledButton>
+                  )}
                 </Flex>
 
                 <Group gap={0} wrap="nowrap">
@@ -279,10 +382,14 @@ export default function EbookDetails() {
                   py={7}
                   style={{
                     alignSelf: "flex-start",
-                    border: "1px solid rgba(255,232,182,0.75)",
-                    backgroundColor: "rgba(200,185,150,0.3)",
+                    border: isSigned
+                      ? "1px solid rgba(0, 214, 57, 0.7)"
+                      : "1px solid rgba(255,232,182,0.75)",
+                    backgroundColor: isSigned
+                      ? "rgba(0, 110, 35, 0.4)"
+                      : "rgba(200,185,150,0.3)",
                     borderRadius: 8,
-                    color: accent,
+                    color: isSigned ? "#00D639" : accent,
                     fontSize: "14px",
                     fontWeight: 600,
                     lineHeight: 1.1,
@@ -290,6 +397,49 @@ export default function EbookDetails() {
                 >
                   {status}
                 </Box>
+
+                {/* ---------- Sirf author ko, jab request In progress ho ---------- */}
+                {myRequest && (
+                  <Box mt={6}>
+                    <Group gap={12} wrap="nowrap">
+                      <Button
+                        h={36}
+                        px={30}
+                        radius={6}
+                        color="#81401F"
+                        c="#FFE8B6"
+                        fw={500}
+                        disabled={actionDisabled}
+                        loading={busy === "signed"}
+                        onClick={handleSigned}
+                        styles={actionBtn}
+                      >
+                        Signed
+                      </Button>
+
+                      <Button
+                        h={36}
+                        px={30}
+                        radius={6}
+                        color="#2B2B2B"
+                        c="#E0E0E0"
+                        fw={500}
+                        disabled={actionDisabled}
+                        loading={busy === "unsigned"}
+                        onClick={handleUnsigned}
+                        styles={actionBtn}
+                      >
+                        Unsigned
+                      </Button>
+                    </Group>
+
+                    {actionError && (
+                      <Text size="12px" c="#FF6B6B" mt={8}>
+                        {actionError}
+                      </Text>
+                    )}
+                  </Box>
+                )}
               </Stack>
             </Flex>
 

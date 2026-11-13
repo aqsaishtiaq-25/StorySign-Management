@@ -27,7 +27,14 @@ import {
 import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
 import authorImg from "../assets/Author-image.png";
-import { getUsers, getPlans, getSubscriptions } from "../api";
+import {
+  getUsers,
+  getPlans,
+  getSubscriptions,
+  getAllAutographRequests,
+  isPendingRequest,
+  isSignedRequest,
+} from "../api";
 import type { ApiUser, ApiPlan, ApiSubscription } from "../api";
 
 // List "data" ke andar ho sakti hai, ya seedha array ho
@@ -45,20 +52,23 @@ export default function AuthorManagement() {
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [plans, setPlans] = useState<ApiPlan[]>([]);
   const [subs, setSubs] = useState<ApiSubscription[]>([]);
+  const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [planWarning, setPlanWarning] = useState<string>("");
+  const [countWarning, setCountWarning] = useState<string>("");
   const [search, setSearch] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      // Teeno ek saath mangwate hain. Ek fail ho to baaki phir bhi chalte hain.
-      const [usersRes, plansRes, subsRes] = await Promise.allSettled([
+      // Sab ek saath mangwate hain. Ek fail ho to baaki phir bhi chalte hain.
+      const [usersRes, plansRes, subsRes, reqRes] = await Promise.allSettled([
         getUsers(1, 100),
         getPlans(),
         getSubscriptions(),
+        getAllAutographRequests(),
       ]);
       if (cancelled) return;
 
@@ -81,6 +91,14 @@ export default function AuthorManagement() {
         setPlanWarning("Could not load plan details.");
       }
 
+      if (reqRes.status === "fulfilled") {
+        setRequests(reqRes.value ?? []);
+      } else {
+        setCountWarning(
+          `Could not load request counts: ${(reqRes.reason as Error).message}`,
+        );
+      }
+
       setLoading(false);
     })();
 
@@ -97,6 +115,22 @@ export default function AuthorManagement() {
     if ((s.status ?? "").toLowerCase() !== "active") return;
     const p: any = planById.get(s.planId) ?? (s as any).plan;
     planNameByUser.set(s.userId, p?.name ?? "Unknown plan");
+  });
+
+  // ---------- Author ki requests ki ginti ----------
+  const pendingByAuthor = new Map<string, number>();
+  const signedByAuthor = new Map<string, number>();
+
+  requests.forEach((r) => {
+    const authorId = r.authorId ?? r.author?.id;
+    if (!authorId) return;
+
+    if (isPendingRequest(r)) {
+      pendingByAuthor.set(authorId, (pendingByAuthor.get(authorId) ?? 0) + 1);
+    }
+    if (isSignedRequest(r)) {
+      signedByAuthor.set(authorId, (signedByAuthor.get(authorId) ?? 0) + 1);
+    }
   });
 
   const activeCount = users.filter((u) => u.isActive).length;
@@ -122,8 +156,10 @@ export default function AuthorManagement() {
       email: u.email,
       avatar: u.avatarUrl || authorImg,
       plan: planWarning ? "-" : (planNameByUser.get(u.id) ?? "No Plan"),
-      signedBook: "-",
-      pendingRequest: "-",
+      signedBook: countWarning ? "-" : String(signedByAuthor.get(u.id) ?? 0),
+      pendingRequest: countWarning
+        ? "-"
+        : String(pendingByAuthor.get(u.id) ?? 0),
       status: u.isActive ? "Active" : "Inactive",
     }))
     .filter((a) => {
@@ -305,8 +341,14 @@ export default function AuthorManagement() {
           )}
 
           {planWarning && (
-            <Text c="red.4" size="11px" mb={6}>
+            <Text c="red.4" size="11px" mb={4}>
               {planWarning}
+            </Text>
+          )}
+
+          {countWarning && (
+            <Text c="red.4" size="11px" mb={6}>
+              {countWarning}
             </Text>
           )}
 

@@ -8,6 +8,7 @@ import {
   Stack,
   UnstyledButton,
   Loader,
+  Button,
 } from "@mantine/core";
 import { FaTrash } from "react-icons/fa";
 
@@ -18,9 +19,13 @@ import {
   getAutographRequestById,
   getEbookById,
   getUserById,
+  getMyProfile,
+  acceptAutographRequest,
+  rejectAutographRequest,
 } from "../api";
 
 type RequestStatus = "Pending" | "In progress" | "Delivered" | "Rejected";
+type Busy = "" | "accept" | "reject";
 
 function formatDate(value: unknown) {
   if (!value) return "-";
@@ -40,9 +45,10 @@ function fullName(u: any) {
 
 function statusLabel(raw: unknown): RequestStatus {
   const s = String(raw ?? "").toUpperCase();
-  if (s === "COMPLETED") return "Delivered";
+  if (s === "COMPLETED" || s === "SIGNED" || s === "DELIVERED")
+    return "Delivered";
   if (s === "REJECTED") return "Rejected";
-  if (s === "IN_PROGRESS") return "In progress";
+  if (s === "IN_PROGRESS" || s === "ACCEPTED") return "In progress";
   return "Pending";
 }
 
@@ -54,9 +60,14 @@ export default function RequestDetailView() {
   const [reader, setReader] = useState<any>(null);
   const [author, setAuthor] = useState<any>(null);
   const [ebook, setEbook] = useState<any>(null);
+  const [me, setMe] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [busy, setBusy] = useState<Busy>("");
+  const [actionError, setActionError] = useState("");
 
   const innerBg = "#211E1E";
   const accent = "#FFE8B6";
@@ -76,7 +87,8 @@ export default function RequestDetailView() {
 
     async function load() {
       try {
-        setLoading(true);
+        // Sirf pehli baar loader dikhao, action ke baad nahi
+        if (reloadKey === 0) setLoading(true);
         setError("");
 
         const res = await getAutographRequestById(id as string);
@@ -84,8 +96,7 @@ export default function RequestDetailView() {
         if (cancelled) return;
         setRequest(r);
 
-        // Response mein reader/author/ebook ho to wahi, warna alag se mangwayenge
-        const [readerData, authorData, ebookData] = await Promise.all([
+        const [readerData, authorData, ebookData, meData] = await Promise.all([
           r.reader
             ? r.reader
             : safe(() => getUserById(r.readerId)).then(
@@ -97,12 +108,14 @@ export default function RequestDetailView() {
                 (u: any) => u?.data ?? u,
               ),
           r.ebook ? r.ebook : safe(() => getEbookById(r.ebookId)),
+          safe(() => getMyProfile()).then((m: any) => m?.data ?? m?.user ?? m),
         ]);
 
         if (!cancelled) {
           setReader(readerData);
           setAuthor(authorData);
           setEbook(ebookData);
+          setMe(meData);
         }
       } catch (err) {
         if (!cancelled) {
@@ -117,9 +130,48 @@ export default function RequestDetailView() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, reloadKey]);
 
   const status = statusLabel(request?.status);
+
+  // Sirf wohi author jis ko yeh request gayi hai (admin ko koi button nahi)
+  const isRequestAuthor =
+    String(me?.role ?? "").toUpperCase() === "AUTHOR" &&
+    !!request &&
+    me?.id === request.authorId;
+
+  // Accept aur Reject sirf Pending par chalte hain
+  const canAct = status === "Pending" && busy === "";
+
+  const reload = () => setReloadKey((k) => k + 1);
+
+  const handleAccept = async () => {
+    if (!id) return;
+    try {
+      setBusy("accept");
+      setActionError("");
+      await acceptAutographRequest(id);
+      reload();
+    } catch (err) {
+      setActionError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const handleReject = async () => {
+    if (!id) return;
+    try {
+      setBusy("reject");
+      setActionError("");
+      await rejectAutographRequest(id);
+      reload();
+    } catch (err) {
+      setActionError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
 
   // Backend rule: sirf Rejected ya Signed (Delivered) request delete hoti hai
   const canDelete = status === "Delivered" || status === "Rejected";
@@ -173,6 +225,14 @@ export default function RequestDetailView() {
   const title = request
     ? `Request: ${String(request.id).slice(0, 8)}`
     : "Request";
+
+  const actionBtn = {
+    root: {
+      fontSize: "13px",
+      opacity: canAct ? 1 : 0.4,
+      cursor: canAct ? "pointer" : "not-allowed",
+    },
+  };
 
   return (
     <ReaderLayout title={title} activePage="requests">
@@ -321,6 +381,74 @@ export default function RequestDetailView() {
                 >
                   {status}
                 </Box>
+
+                {/* ---------- Sirf author ko: Accept / Reject ---------- */}
+                {isRequestAuthor && (
+                  <Box mt={6}>
+                    <Group gap={12} wrap="nowrap">
+                      <Button
+                        h={36}
+                        px={30}
+                        radius={6}
+                        color="#81401F"
+                        c="#FFE8B6"
+                        fw={500}
+                        disabled={!canAct}
+                        loading={busy === "accept"}
+                        onClick={handleAccept}
+                        styles={actionBtn}
+                      >
+                        Accept
+                      </Button>
+
+                      <Button
+                        h={36}
+                        px={30}
+                        radius={6}
+                        color="#8A1C1C"
+                        c="#FFE8B6"
+                        fw={500}
+                        disabled={!canAct}
+                        loading={busy === "reject"}
+                        onClick={handleReject}
+                        styles={actionBtn}
+                      >
+                        Reject
+                      </Button>
+
+                      {status === "In progress" && request.ebookId && (
+                        <Button
+                          h={36}
+                          px={22}
+                          radius={6}
+                          color="#2B2B2B"
+                          c="#E0E0E0"
+                          fw={500}
+                          onClick={() =>
+                            navigate(`/ebook-detail/${request.ebookId}`)
+                          }
+                          styles={{ root: { fontSize: "13px" } }}
+                        >
+                          Open Ebook to Sign
+                        </Button>
+                      )}
+                    </Group>
+
+                    {status !== "Pending" && (
+                      <Text size="11px" c="#B8B4B0" mt={8}>
+                        {status === "In progress"
+                          ? "Request accepted. Open the ebook to sign it."
+                          : `This request is already ${status.toLowerCase()}.`}
+                      </Text>
+                    )}
+
+                    {actionError && (
+                      <Text size="12px" c="#FF6B6B" mt={8}>
+                        {actionError}
+                      </Text>
+                    )}
+                  </Box>
+                )}
               </Stack>
             </Flex>
 

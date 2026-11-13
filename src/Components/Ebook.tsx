@@ -27,7 +27,14 @@ import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination";
 import bookCover from "../assets/Ebook-img.png";
 import authorAvatar from "../assets/Reader-image.png";
-import { getEbooks, getEbookStats, getUserById, type EbookStats } from "../api";
+import {
+  getEbooks,
+  getEbookStats,
+  getUserById,
+  getMyProfile,
+  getAllAutographRequests,
+  type EbookStats,
+} from "../api";
 
 type BookStatus = "Signed" | "Unsigned" | "Rejected";
 
@@ -54,7 +61,11 @@ function formatDate(value: unknown) {
 
 // Backend ki ebook + reader ki details -> UI ka Book
 function toBook(e: any, readers: Record<string, any>): Book {
-  const reader = readers[e.readerId];
+  const reader =
+    e.reader ??
+    readers[e.readerId] ??
+    (e.autographRequests ?? []).find((r: any) => r.reader)?.reader;
+
   const name = reader
     ? `${reader.firstName ?? ""} ${reader.lastName ?? ""}`.trim()
     : "";
@@ -89,18 +100,24 @@ export default function EbookManagement() {
   const accentCardBg = "#FFE8B6";
   const numberColor = "#2A1005";
 
-  // Stats: sirf ek baar
+  // Stats: sirf ek baar. Fail ho to table ko na roke (sirf admin ke liye hain)
   useEffect(() => {
     getEbookStats()
       .then(setStats)
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : "Could not load stats"),
-      );
+      .catch(() => setStats(null));
   }, []);
 
   // Ebooks: har page change par
   useEffect(() => {
     let cancelled = false;
+
+    async function safe<T>(fn: () => Promise<T>) {
+      try {
+        return await fn();
+      } catch {
+        return null;
+      }
+    }
 
     async function load() {
       try {
@@ -110,22 +127,37 @@ export default function EbookManagement() {
         const res = await getEbooks(page, pageSize);
         const items: any[] = res.data ?? [];
 
-        // Is page ke saare readers ki details (har reader ek hi baar)
-        const ids = [
-          ...new Set(items.map((e) => e.readerId).filter(Boolean)),
+        // Apni profile, aur autograph requests (un mein reader ka naam hota hai)
+        const meRes: any = await safe(() => getMyProfile());
+        const me = meRes?.data ?? meRes?.user ?? meRes;
+        const requests: any[] =
+          (await safe(() => getAllAutographRequests())) ?? [];
+
+        const readers: Record<string, any> = {};
+        if (me?.id) readers[me.id] = me;
+
+        requests.forEach((r) => {
+          const rd = r.reader;
+          const rid = rd?.id ?? r.readerId;
+          if (rd && rid && !readers[rid]) readers[rid] = rd;
+        });
+
+        // Jo readers abhi tak nahi mile, un ki details alag se
+        const missing = [
+          ...new Set(
+            items.map((e) => e.readerId).filter((x) => x && !readers[x]),
+          ),
         ] as string[];
 
-        const entries = await Promise.all(
-          ids.map(async (id) => {
-            try {
-              const u = await getUserById(id);
-              return [id, u.data ?? u] as const;
-            } catch {
-              return [id, null] as const;
-            }
+        const fetched = await Promise.all(
+          missing.map(async (rid) => {
+            const u: any = await safe(() => getUserById(rid));
+            return [rid, u?.data ?? u] as const;
           }),
         );
-        const readers = Object.fromEntries(entries);
+        fetched.forEach(([rid, u]) => {
+          if (u) readers[rid] = u;
+        });
 
         if (!cancelled) {
           setBooks(items.map((e) => toBook(e, readers)));
