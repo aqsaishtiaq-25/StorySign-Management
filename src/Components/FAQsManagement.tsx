@@ -24,6 +24,7 @@ import {
   createFaq,
   updateFaq,
   deleteFaq as deleteFaqApi,
+  getMyProfile,
 } from "../api";
 import type { ApiFaq } from "../api";
 
@@ -48,6 +49,9 @@ const toFaq = (f: ApiFaq): FAQ => ({
 });
 
 export default function FAQsManagement() {
+  // sirf admin ko add / edit / delete dikhna chahiye
+  const [isAdmin, setIsAdmin] = useState(false);
+
   const [view, setView] = useState<"list" | "form">("list");
   const [showSuccess, setShowSuccess] = useState(false);
 
@@ -67,6 +71,26 @@ export default function FAQsManagement() {
   const isEditing = editingId !== null;
   const pageSize = 6;
 
+  // ---------- Role check (admin hai ya nahi) ----------
+  useEffect(() => {
+    let cancelled = false;
+
+    getMyProfile()
+      .then((res) => {
+        if (cancelled) return;
+        const user = res?.data ?? res;
+        setIsAdmin(String(user?.role ?? "").toUpperCase() === "ADMIN");
+      })
+      .catch(() => {
+        if (!cancelled) setIsAdmin(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // ----------------------------------------------------
+
   // ---------- Backend se list lana ----------
   const loadFaqs = async (isCancelled: () => boolean = () => false) => {
     try {
@@ -81,7 +105,7 @@ export default function FAQsManagement() {
           : null;
 
       if (!raw) {
-        throw new Error("Server se FAQs ki list nahi mili.");
+        throw new Error("Could not load the FAQs list.");
       }
 
       const list: ApiFaq[] = raw;
@@ -128,12 +152,14 @@ export default function FAQsManagement() {
   };
 
   const openAddForm = () => {
+    if (!isAdmin) return;
     resetForm();
     setErrorMsg("");
     setView("form");
   };
 
   const openEditForm = (faq: FAQ) => {
+    if (!isAdmin) return;
     setEditingId(faq.id);
     setQuestion(faq.question);
     setAnswer(faq.answer);
@@ -149,6 +175,7 @@ export default function FAQsManagement() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!isAdmin) return;
     try {
       setErrorMsg("");
       await deleteFaqApi(id);
@@ -159,6 +186,8 @@ export default function FAQsManagement() {
   };
 
   const handleSubmit = async () => {
+    if (!isAdmin) return;
+
     const cleanQuestion = question.trim();
     const cleanAnswer = answer.trim();
 
@@ -282,21 +311,23 @@ export default function FAQsManagement() {
                   }}
                 />
 
-                <UnstyledButton
-                  onClick={openAddForm}
-                  style={{
-                    height: "34px",
-                    padding: "0 22px",
-                    backgroundColor: brown,
-                    borderRadius: "20px",
-                    display: "flex",
-                    alignItems: "center",
-                  }}
-                >
-                  <Text size="12px" fw={500} c={cream}>
-                    Add Question
-                  </Text>
-                </UnstyledButton>
+                {isAdmin && (
+                  <UnstyledButton
+                    onClick={openAddForm}
+                    style={{
+                      height: "34px",
+                      padding: "0 22px",
+                      backgroundColor: brown,
+                      borderRadius: "20px",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text size="12px" fw={500} c={cream}>
+                      Add Question
+                    </Text>
+                  </UnstyledButton>
+                )}
               </Group>
             </Flex>
 
@@ -320,7 +351,7 @@ export default function FAQsManagement() {
                   key={faq.id}
                   style={{
                     position: "relative",
-                    padding: "10px 110px 12px 0",
+                    padding: isAdmin ? "10px 110px 12px 0" : "10px 0 12px 0",
                     borderBottom: "1px solid rgba(255,255,255,0.14)",
                     boxSizing: "border-box",
                     flexShrink: 0,
@@ -346,33 +377,35 @@ export default function FAQsManagement() {
                     {faq.answer}
                   </Text>
 
-                  <Group
-                    gap={8}
-                    wrap="nowrap"
-                    style={{ position: "absolute", top: 10, right: 0 }}
-                  >
-                    <ActionIcon
-                      variant="transparent"
-                      radius="xl"
-                      size={26}
-                      aria-label="Delete FAQ"
-                      onClick={() => handleDelete(faq.id)}
-                      styles={iconBtnStyles}
+                  {isAdmin && (
+                    <Group
+                      gap={8}
+                      wrap="nowrap"
+                      style={{ position: "absolute", top: 10, right: 0 }}
                     >
-                      <FaTrashAlt size={10} />
-                    </ActionIcon>
+                      <ActionIcon
+                        variant="transparent"
+                        radius="xl"
+                        size={26}
+                        aria-label="Delete FAQ"
+                        onClick={() => handleDelete(faq.id)}
+                        styles={iconBtnStyles}
+                      >
+                        <FaTrashAlt size={10} />
+                      </ActionIcon>
 
-                    <ActionIcon
-                      variant="transparent"
-                      radius="xl"
-                      size={26}
-                      aria-label="Edit FAQ"
-                      onClick={() => openEditForm(faq)}
-                      styles={iconBtnStyles}
-                    >
-                      <FaPen size={10} />
-                    </ActionIcon>
-                  </Group>
+                      <ActionIcon
+                        variant="transparent"
+                        radius="xl"
+                        size={26}
+                        aria-label="Edit FAQ"
+                        onClick={() => openEditForm(faq)}
+                        styles={iconBtnStyles}
+                      >
+                        <FaPen size={10} />
+                      </ActionIcon>
+                    </Group>
+                  )}
                 </Box>
               ))}
 
@@ -398,7 +431,7 @@ export default function FAQsManagement() {
         </>
       )}
 
-      {view === "form" && (
+      {view === "form" && isAdmin && (
         <Box
           style={{
             width: "100%",

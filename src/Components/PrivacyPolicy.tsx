@@ -24,6 +24,7 @@ import {
   createPolicy,
   updatePolicy,
   deletePolicy as deletePolicyApi,
+  getMyProfile,
 } from "../api";
 import type { ApiPolicy } from "../api";
 
@@ -50,6 +51,9 @@ const toPolicy = (p: ApiPolicy): Policy => ({
 });
 
 export default function PrivacyPolicy() {
+  // sirf admin ko add / edit / delete dikhna chahiye
+  const [isAdmin, setIsAdmin] = useState(false);
+
   const [view, setView] = useState<"list" | "form">("list");
   const [showSuccess, setShowSuccess] = useState(false);
 
@@ -68,14 +72,32 @@ export default function PrivacyPolicy() {
   const isEditing = editingId !== null;
   const pageSize = 5;
 
+  // ---------- Role check (admin hai ya nahi) ----------
+  useEffect(() => {
+    let cancelled = false;
+
+    getMyProfile()
+      .then((res) => {
+        if (cancelled) return;
+        const user = res?.data ?? res;
+        setIsAdmin(String(user?.role ?? "").toUpperCase() === "ADMIN");
+      })
+      .catch(() => {
+        if (!cancelled) setIsAdmin(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // ----------------------------------------------------
+
   // ---------- Backend se list lana ----------
   // isCancelled: page chhorne ya dobara chalne par purana jawab ignore karne ke liye
   const loadPolicies = async (isCancelled: () => boolean = () => false) => {
     try {
       const res = await getPolicies();
       if (isCancelled()) return;
-
-      console.log("policies raw response:", res);
 
       // list "data" mein ho sakti hai, ya seedha array ho
       const raw = Array.isArray(res.data)
@@ -85,7 +107,7 @@ export default function PrivacyPolicy() {
           : null;
 
       if (!raw) {
-        throw new Error("Server se policies ki list nahi mili.");
+        throw new Error("Could not load the policies list.");
       }
 
       const list: ApiPolicy[] = raw;
@@ -135,12 +157,14 @@ export default function PrivacyPolicy() {
   };
 
   const openAddForm = () => {
+    if (!isAdmin) return;
     resetForm();
     setErrorMsg("");
     setView("form");
   };
 
   const openEditForm = (policy: Policy) => {
+    if (!isAdmin) return;
     setEditingId(policy.id);
     setTitle(policy.title);
     setDescription(policy.description);
@@ -155,6 +179,7 @@ export default function PrivacyPolicy() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!isAdmin) return;
     try {
       setErrorMsg("");
       await deletePolicyApi(id);
@@ -165,11 +190,13 @@ export default function PrivacyPolicy() {
   };
 
   const handleSubmit = async () => {
+    if (!isAdmin) return;
+
     const cleanTitle = title.trim();
     const cleanDescription = description.trim();
 
     if (!cleanTitle || !cleanDescription) {
-      setErrorMsg("Title aur description dono zaroori hain.");
+      setErrorMsg("Title and description are both required.");
       return;
     }
 
@@ -280,21 +307,23 @@ export default function PrivacyPolicy() {
                   }}
                 />
 
-                <UnstyledButton
-                  onClick={openAddForm}
-                  style={{
-                    height: "34px",
-                    padding: "0 22px",
-                    backgroundColor: brown,
-                    borderRadius: "20px",
-                    display: "flex",
-                    alignItems: "center",
-                  }}
-                >
-                  <Text size="12px" fw={500} c={cream}>
-                    Add Policy
-                  </Text>
-                </UnstyledButton>
+                {isAdmin && (
+                  <UnstyledButton
+                    onClick={openAddForm}
+                    style={{
+                      height: "34px",
+                      padding: "0 22px",
+                      backgroundColor: brown,
+                      borderRadius: "20px",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text size="12px" fw={500} c={cream}>
+                      Add Policy
+                    </Text>
+                  </UnstyledButton>
+                )}
               </Group>
             </Flex>
 
@@ -318,7 +347,7 @@ export default function PrivacyPolicy() {
                   key={policy.id}
                   style={{
                     position: "relative",
-                    padding: "10px 110px 12px 0",
+                    padding: isAdmin ? "10px 110px 12px 0" : "10px 0 12px 0",
                     borderBottom: "1px solid rgba(255,255,255,0.14)",
                     boxSizing: "border-box",
                     flexShrink: 0,
@@ -344,33 +373,35 @@ export default function PrivacyPolicy() {
                     {policy.description}
                   </Text>
 
-                  <Group
-                    gap={8}
-                    wrap="nowrap"
-                    style={{ position: "absolute", top: 10, right: 0 }}
-                  >
-                    <ActionIcon
-                      variant="transparent"
-                      radius="xl"
-                      size={26}
-                      aria-label="Delete policy"
-                      onClick={() => handleDelete(policy.id)}
-                      styles={iconBtnStyles}
+                  {isAdmin && (
+                    <Group
+                      gap={8}
+                      wrap="nowrap"
+                      style={{ position: "absolute", top: 10, right: 0 }}
                     >
-                      <FaTrashAlt size={10} />
-                    </ActionIcon>
+                      <ActionIcon
+                        variant="transparent"
+                        radius="xl"
+                        size={26}
+                        aria-label="Delete policy"
+                        onClick={() => handleDelete(policy.id)}
+                        styles={iconBtnStyles}
+                      >
+                        <FaTrashAlt size={10} />
+                      </ActionIcon>
 
-                    <ActionIcon
-                      variant="transparent"
-                      radius="xl"
-                      size={26}
-                      aria-label="Edit policy"
-                      onClick={() => openEditForm(policy)}
-                      styles={iconBtnStyles}
-                    >
-                      <FaPen size={10} />
-                    </ActionIcon>
-                  </Group>
+                      <ActionIcon
+                        variant="transparent"
+                        radius="xl"
+                        size={26}
+                        aria-label="Edit policy"
+                        onClick={() => openEditForm(policy)}
+                        styles={iconBtnStyles}
+                      >
+                        <FaPen size={10} />
+                      </ActionIcon>
+                    </Group>
+                  )}
                 </Box>
               ))}
 
@@ -396,7 +427,7 @@ export default function PrivacyPolicy() {
         </>
       )}
 
-      {view === "form" && (
+      {view === "form" && isAdmin && (
         <Box
           style={{
             width: "100%",
