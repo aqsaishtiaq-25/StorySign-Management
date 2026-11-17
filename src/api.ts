@@ -82,9 +82,9 @@ export async function updateMyProfile(data: {
 }
 
 // ---------- Profile photo ----------
-// ZAROORI: Postman ("Update user Profile" > Body > form-data) ma file ki key ka
-// jo naam chale, wahi yahan likhein (avatar / file / image).
-export const AVATAR_FIELD = "file";
+// Upload: PATCH /users/my (form-data) -- file ki key ka naam neeche likha hai.
+// Photo dekhna: GET /users/<id>/avatar
+export const AVATAR_FIELD = "avatar";
 export const AVATAR_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 export const AVATAR_MAX_MB = 2;
 
@@ -92,8 +92,36 @@ export const AVATAR_MAX_MB = 2;
 export function resolveAvatarUrl(url?: string | null): string | null {
   if (!url) return null;
   if (/^(https?:|data:|blob:)/i.test(url)) return url;
+  if (url.startsWith(`${BASE_URL}/`)) return url; // pehle se /api se shuru hai
   return `${BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
 }
+
+// Avatar ko token ke saath mangwa kar blob link banata hai, kyun ke <img> token nahi bhejta
+// (avatar endpoint login mange to bhi chalta hai). Bahar ka poora link seedha use hota hai.
+export async function loadAvatarSrc(url?: string | null): Promise<string | null> {
+  const resolved = resolveAvatarUrl(url);
+  if (!resolved) return null;
+  if (/^(data:|blob:)/i.test(resolved)) return resolved;
+
+  const token = localStorage.getItem("token");
+  const res = await fetch(resolved, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+
+  const blob = await res.blob();
+  if (!blob.size || !blob.type.startsWith("image/")) return null;
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(blob);
+  });
+}
+
+
 
 export async function updateMyAvatar(file: File) {
   const token = localStorage.getItem("token");

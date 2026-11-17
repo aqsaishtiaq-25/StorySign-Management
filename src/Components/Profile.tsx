@@ -12,12 +12,12 @@ import { FaPen, FaCamera } from "react-icons/fa";
 import { MdOutlineVerified } from "react-icons/md";
 
 import ReaderLayout from "./ReaderLayout";
+import { useAvatarSrc } from "./useAvatarSrc";
 import {
   getMyProfile,
   updateMyProfile,
   updatePassword,
   updateMyAvatar,
-  resolveAvatarUrl,
   AVATAR_ALLOWED_TYPES,
   AVATAR_MAX_MB,
 } from "../api";
@@ -112,6 +112,7 @@ export default function Profile() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState<boolean>(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [avatarTick, setAvatarTick] = useState<number>(0);
 
   // name + email + photo shown at the top of the panel
   const [profileInfo, setProfileInfo] = useState<{
@@ -124,6 +125,9 @@ export default function Profile() {
     avatar: null,
   });
 
+  // Photo token ke saath load hoti hai (avatarTick badle to dobara)
+  const avatarSrc = useAvatarSrc(profileInfo.avatar, avatarTick);
+
   // Page khulte hi asli profile backend se laao
   useEffect(() => {
     getMyProfile()
@@ -135,8 +139,9 @@ export default function Profile() {
         setProfileInfo({
           name,
           email,
-          avatar: resolveAvatarUrl(p?.avatarUrl),
+          avatar: p?.avatarUrl ?? null,
         });
+        setAvatarTick((t) => t + 1);
         setForm((prev) => ({ ...prev, fullName: name, email }));
       })
       .catch((err) => setErrorMsg((err as Error).message));
@@ -264,8 +269,9 @@ export default function Profile() {
       const p = res?.data ?? res?.user ?? res;
       setProfileInfo((prev) => ({
         ...prev,
-        avatar: resolveAvatarUrl(p?.avatarUrl),
+        avatar: p?.avatarUrl ?? null,
       }));
+      setAvatarTick((t) => t + 1); // naya URL wahi ho to bhi photo dobara load ho
       // Top-right ki photo bhi badal jaye
       window.dispatchEvent(new Event("profile-updated"));
     } catch (err) {
@@ -336,9 +342,9 @@ export default function Profile() {
               height: u(101),
             }}
           >
-            {preview || profileInfo.avatar ? (
+            {preview || avatarSrc ? (
               <img
-                src={preview || profileInfo.avatar || ""}
+                src={preview || avatarSrc || ""}
                 alt={profileInfo.name}
                 style={{ ...circleImg("100%"), opacity: uploading ? 0.6 : 1 }}
               />

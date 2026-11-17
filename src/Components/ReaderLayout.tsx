@@ -32,8 +32,9 @@ import {
 import { BiLogOut, BiDollarCircle, BiLineChart } from "react-icons/bi";
 
 import logo from "../assets/logo.png";
-import { getMyProfile, resolveAvatarUrl } from "../api";
+import { getMyProfile } from "../api";
 import { SearchContext } from "./SearchContext.ts";
+import { useAvatarSrc } from "./useAvatarSrc";
 
 interface ReaderLayoutProps {
   children: any;
@@ -88,6 +89,9 @@ export default function ReaderLayout({
     avatar: string | null;
   }>({ name: "", email: "", avatar: null });
 
+  const [avatarTick, setAvatarTick] = useState(0);
+  const headerAvatarSrc = useAvatarSrc(me.avatar, avatarTick);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -101,8 +105,9 @@ export default function ReaderLayout({
           setMe({
             name,
             email: p?.email ?? "",
-            avatar: resolveAvatarUrl(p?.avatarUrl),
+            avatar: p?.avatarUrl ?? null,
           });
+          setAvatarTick((t) => t + 1);
         })
         .catch(() => {
           // Header ke liye chup rehna theek hai; page apna error khud dikhata hai
@@ -394,7 +399,7 @@ export default function ReaderLayout({
             <Group gap="xs" align="center" style={{ width: 170 }}>
               {/* photo na ho to naam ke pehle letters dikhte hain */}
               <Avatar
-                src={me.avatar || undefined}
+                src={headerAvatarSrc}
                 size={36}
                 radius="xl"
                 styles={{
