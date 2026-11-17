@@ -319,33 +319,6 @@ export async function getTopAuthors() {
   return handle(res, "Could not load top authors");
 }
 
-// ---------- Support Queries ----------
-const SQ_URL = `${BASE_URL}/support-queries`;
-
-export type SupportQueryStats = {
-  totalQueries?: number;
-  pendingQueries?: number;
-  resolutionRate?: number;
-  avgResponseTimeMinutes?: number;
-};
-
-export async function getSupportQueries(page = 1, limit = 5) {
-  const res = await fetch(`${SQ_URL}?page=${page}&limit=${limit}`, {
-    headers: authHeaders(),
-  });
-  return handle(res, "Could not load support queries");
-}
-
-export async function getSupportQueryStats(): Promise<SupportQueryStats> {
-  const res = await fetch(`${SQ_URL}/stats`, { headers: authHeaders() });
-  return handle(res, "Could not load support query stats");
-}
-
-export async function getSupportQueryById(id: string) {
-  const res = await fetch(`${SQ_URL}/${id}`, { headers: authHeaders() });
-  return handle(res, "Could not load support query");
-}
-
 // ---------- Policies ----------
 
 export type ApiPolicy = {
@@ -788,4 +761,75 @@ export async function unsignAutographRequest(id: string) {
     headers: authHeaders(),
   });
   return handle(res, "Could not mark the request as unsigned");
+}
+
+// ---------- Support Queries ----------
+const SQ_URL = `${BASE_URL}/support-queries`;
+
+export type SupportQueryStats = {
+  totalQueries?: number;
+  pendingQueries?: number;
+  resolutionRate?: number;
+  avgResponseTimeMinutes?: number;
+};
+
+export type ApiSupportQuery = {
+  id: string;
+  userId: string;
+  subject: string;
+  message: string;
+  status: string;
+  adminReply: string | null;
+  firstResponseAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function getSupportQueries(page = 1, limit = 5) {
+  const res = await fetch(`${SQ_URL}?page=${page}&limit=${limit}`, {
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not load support queries");
+}
+
+export async function getSupportQueryStats(): Promise<SupportQueryStats> {
+  const res = await fetch(`${SQ_URL}/stats`, { headers: authHeaders() });
+  return handle(res, "Could not load support query stats");
+}
+
+export async function getSupportQueryById(id: string) {
+  const res = await fetch(`${SQ_URL}/${id}`, { headers: authHeaders() });
+  return handle(res, "Could not load support query");
+}
+
+export async function createSupportQuery(data: {
+  subject: string;
+  message: string;
+}) {
+  const res = await fetch(SQ_URL, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not create support query");
+}
+
+export async function updateSupportQuery(
+  id: string,
+  data: Partial<{ status: string; adminReply: string }>,
+) {
+  const res = await fetch(`${SQ_URL}/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handle(res, "Could not update support query");
+}
+
+export async function deleteSupportQuery(id: string) {
+  const res = await fetch(`${SQ_URL}/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  return handle(res, "Could not delete support query");
 }
