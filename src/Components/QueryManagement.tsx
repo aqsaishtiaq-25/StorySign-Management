@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Avatar,
   Box,
   Button,
   Flex,
@@ -25,8 +26,8 @@ import {
 } from "react-icons/fa";
 
 import ReaderLayout from "./ReaderLayout";
-import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
-import authorImg from "../assets/Author-image.png";
+import { useAvatarSrc } from "./useAvatarSrc";
+import Pagination from "./Pagination";
 import {
   getMyProfile,
   getSupportQueries,
@@ -204,6 +205,44 @@ function StatusBadge({ status }: { status: QueryStatus }) {
     >
       {status}
     </Box>
+  );
+}
+
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("") || "?";
+
+function UserAvatar({
+  url,
+  name,
+  size = 34,
+}: {
+  url?: string | null;
+  name: string;
+  size?: number;
+}) {
+  const src = useAvatarSrc(url);
+  return (
+    <Avatar
+      src={src}
+      radius="xl"
+      size={size}
+      styles={{
+        placeholder: {
+          backgroundColor: "#91451F",
+          color: "#FFE8B6",
+          fontWeight: 700,
+          fontSize: Math.round(size * 0.36),
+        },
+      }}
+    >
+      {initialsOf(name)}
+    </Avatar>
   );
 }
 
@@ -458,7 +497,8 @@ function AdminQueries() {
               return {
                 id: String(q.id),
                 name: fullName(u),
-                avatar: u?.avatarUrl || authorImg,
+                avatar: u?.avatarUrl ?? "",
+
                 role: capitalize(u?.role),
                 subject: q.subject ?? "-",
                 status: toStatus(q.status),
@@ -672,20 +712,12 @@ function AdminQueries() {
                   <Table.Tr key={row.id}>
                     <Table.Td>
                       <Flex align="center" gap={12}>
-                        <img
-                          src={row.avatar}
-                          alt={row.name}
-                          onError={(e) => {
-                            e.currentTarget.src = authorImg;
-                          }}
-                          style={{
-                            width: 38,
-                            height: 38,
-                            borderRadius: "50%",
-                            objectFit: "cover",
-                            flexShrink: 0,
-                          }}
+                        <UserAvatar
+                          url={row.avatar}
+                          name={row.name}
+                          size={38}
                         />
+
                         <Text
                           size="14px"
                           c={C.white}

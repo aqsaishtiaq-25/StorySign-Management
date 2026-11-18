@@ -25,9 +25,8 @@ import {
   FiUserX,
 } from "react-icons/fi";
 
-import readerImg from "../assets/Reader-image.png";
-
 import ReaderLayout from "./ReaderLayout";
+import { useAvatarSrc } from "./useAvatarSrc";
 import Pagination from "./Pagination";
 import DeactivateModal from "./DeactivateModal";
 import ActivateModal from "./ActivateModal";
@@ -73,11 +72,49 @@ function toRow(u: any): ReaderRow {
     shortId: String(u.id).slice(0, 8),
     name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "Unknown",
     email: u.email ?? "-",
-    avatar: u.avatarUrl || readerImg,
+    avatar: u.avatarUrl ?? "",
     book: `${first}${extra}`,
     status,
     spent: `$${Number(u.totalSpent ?? 0).toFixed(2)}`,
   };
+}
+
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("") || "?";
+
+function UserAvatar({
+  url,
+  name,
+  size = 32,
+}: {
+  url?: string | null;
+  name: string;
+  size?: number;
+}) {
+  const src = useAvatarSrc(url);
+  return (
+    <Avatar
+      src={src}
+      radius="xl"
+      size={size}
+      styles={{
+        placeholder: {
+          backgroundColor: "#91451F",
+          color: "#FFE8B6",
+          fontWeight: 700,
+          fontSize: Math.round(size * 0.36),
+        },
+      }}
+    >
+      {initialsOf(name)}
+    </Avatar>
+  );
 }
 
 export default function ReaderManagement() {
@@ -458,7 +495,11 @@ export default function ReaderManagement() {
                             onClick={() => navigate("/reader-detail")}
                             style={{ cursor: "pointer" }}
                           >
-                            <Avatar src={reader.avatar} size={32} radius="xl" />
+                            <UserAvatar
+                              url={reader.avatar}
+                              name={reader.name}
+                              size={32}
+                            />
 
                             <Text
                               size="11px"

@@ -6,6 +6,7 @@ import {
   Text,
   Group,
   TextInput,
+  Avatar,
   SimpleGrid,
   Table,
   UnstyledButton,
@@ -24,14 +25,15 @@ import {
 } from "react-icons/fi";
 
 import ReaderLayout from "./ReaderLayout";
+import { useAvatarSrc } from "./useAvatarSrc";
 import Pagination from "./Pagination";
 import bookCover from "../assets/Ebook-img.png";
-import authorAvatar from "../assets/Reader-image.png";
 import {
   getEbooks,
   getEbookStats,
   getUserById,
   getMyProfile,
+  getUsers,
   getAllAutographRequests,
   type EbookStats,
 } from "../api";
@@ -59,11 +61,51 @@ function formatDate(value: unknown) {
   });
 }
 
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("") || "?";
+
+function UserAvatar({
+  url,
+  name,
+  size = 32,
+}: {
+  url?: string | null;
+  name: string;
+  size?: number;
+}) {
+  const src = useAvatarSrc(url);
+  return (
+    <Avatar
+      src={src}
+      radius="xl"
+      size={size}
+      styles={{
+        placeholder: {
+          backgroundColor: "#91451F",
+          color: "#FFE8B6",
+          fontWeight: 700,
+          fontSize: Math.round(size * 0.36),
+        },
+      }}
+    >
+      {initialsOf(name)}
+    </Avatar>
+  );
+}
+
 // Backend ki ebook + reader ki details -> UI ka Book
 function toBook(e: any, readers: Record<string, any>): Book {
+  const rid = e.reader?.id ?? e.readerId;
+  const fullReader = rid ? readers[rid] : null;
   const reader =
+    fullReader ??
     e.reader ??
-    readers[e.readerId] ??
     (e.autographRequests ?? []).find((r: any) => r.reader)?.reader;
 
   const name = reader
@@ -77,7 +119,7 @@ function toBook(e: any, readers: Record<string, any>): Book {
     date: formatDate(e.createdAt),
     status: e.isSigned ? "Signed" : "Unsigned",
     cover: e.coverUrl || bookCover,
-    avatar: reader?.avatarUrl || authorAvatar,
+    avatar: fullReader?.avatarUrl || reader?.avatarUrl || "",
   };
 }
 
@@ -127,14 +169,26 @@ export default function EbookManagement() {
         const res = await getEbooks(page, pageSize);
         const items: any[] = res.data ?? [];
 
-        // Apni profile, aur autograph requests (un mein reader ka naam hota hai)
+        // Apni profile, saare users (unke avatarUrl ke sath), aur autograph requests
         const meRes: any = await safe(() => getMyProfile());
         const me = meRes?.data ?? meRes?.user ?? meRes;
+        const usersRes: any = await safe(() => getUsers(1, 100));
+        const allUsers: any[] = Array.isArray(usersRes)
+          ? usersRes
+          : (usersRes?.data?.items ??
+            usersRes?.data ??
+            usersRes?.items ??
+            usersRes?.users ??
+            []);
         const requests: any[] =
           (await safe(() => getAllAutographRequests())) ?? [];
 
         const readers: Record<string, any> = {};
         if (me?.id) readers[me.id] = me;
+
+        allUsers.forEach((u) => {
+          if (u?.id) readers[u.id] = u;
+        });
 
         requests.forEach((r) => {
           const rd = r.reader;
@@ -301,6 +355,7 @@ export default function EbookManagement() {
                   border: "none",
                   borderRadius: "20px",
                   color: "#FFFFFF",
+
                   paddingLeft: "36px",
                   fontSize: "12px",
                 },
@@ -418,19 +473,10 @@ export default function EbookManagement() {
 
                       <Table.Td py={12} style={tdStyle}>
                         <Group gap={8} wrap="nowrap">
-                          <img
-                            src={book.avatar}
-                            alt={book.author}
-                            onError={(e) => {
-                              e.currentTarget.src = authorAvatar;
-                            }}
-                            style={{
-                              width: 34,
-                              height: 34,
-                              borderRadius: "50%",
-                              objectFit: "cover",
-                              flexShrink: 0,
-                            }}
+                          <UserAvatar
+                            url={book.avatar}
+                            name={book.author}
+                            size={34}
                           />
 
                           <Text

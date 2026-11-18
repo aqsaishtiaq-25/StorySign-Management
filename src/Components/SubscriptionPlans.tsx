@@ -22,8 +22,8 @@ import { FaPen, FaTrashAlt } from "react-icons/fa";
 import { HiOutlineBadgeCheck } from "react-icons/hi";
 
 import ReaderLayout from "./ReaderLayout";
-import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
-import authorImg from "../assets/Author-image.png";
+import { useAvatarSrc } from "./useAvatarSrc";
+import Pagination from "./Pagination";
 import {
   getMyProfile,
   getPlans,
@@ -58,6 +58,44 @@ const formatDate = (iso?: string) =>
         year: "numeric",
       })
     : "-";
+
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("") || "?";
+
+function UserAvatar({
+  url,
+  name,
+  size = 32,
+}: {
+  url?: string | null;
+  name: string;
+  size?: number;
+}) {
+  const src = useAvatarSrc(url);
+  return (
+    <Avatar
+      src={src}
+      radius="xl"
+      size={size}
+      styles={{
+        placeholder: {
+          backgroundColor: "#91451F",
+          color: "#FFE8B6",
+          fontWeight: 700,
+          fontSize: Math.round(size * 0.36),
+        },
+      }}
+    >
+      {initialsOf(name)}
+    </Avatar>
+  );
+}
 
 interface SubscriberRow {
   id: string;
@@ -208,7 +246,8 @@ export default function SubscriptionPlans() {
 
   const subscribers: SubscriberRow[] = subs
     .map((s) => {
-      const u: any = s.user ?? userById.get(s.userId);
+      const fullUser = userById.get(s.userId);
+      const u: any = fullUser ?? s.user;
       const p: any = s.plan ?? planById.get(s.planId);
       const charges = p?.planCharges;
 
@@ -216,7 +255,7 @@ export default function SubscriptionPlans() {
         id: s.id,
         userId: s.userId,
         name: u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "Unknown",
-        avatar: u?.avatarUrl || authorImg,
+        avatar: fullUser?.avatarUrl || u?.avatarUrl || "",
         plan: p?.name ?? "-",
         status: (s.status ?? "").toLowerCase(),
         billing:
@@ -1011,10 +1050,10 @@ export default function SubscriptionPlans() {
                       >
                         <Table.Td py={12} style={tdStyle}>
                           <Group gap={8} wrap="nowrap">
-                            <Avatar
-                              src={subscriber.avatar}
-                              size={34}
-                              radius="xl"
+                            <UserAvatar
+                              url={subscriber.avatar}
+                              name={subscriber.name}
+                              size={32}
                             />
 
                             <Text

@@ -13,6 +13,7 @@ import { MdOutlineVerified } from "react-icons/md";
 
 import ReaderLayout from "./ReaderLayout";
 import { useAvatarSrc } from "./useAvatarSrc";
+import { useNavigate } from "react-router-dom";
 import {
   getMyProfile,
   updateMyProfile,
@@ -102,6 +103,7 @@ const splitName = (full: string) => {
 };
 
 export default function Profile() {
+  const navigate = useNavigate();
   const [form, setForm] = useState<Record<string, string>>(emptyForm);
   const [submitted, setSubmitted] = useState<boolean>(false);
   const [successOpen, setSuccessOpen] = useState<boolean>(false);
@@ -190,7 +192,7 @@ export default function Profile() {
       {};
     if (newName.firstName !== oldName.firstName)
       changes.firstName = newName.firstName;
-    if (newName.lastName !== oldName.lastName && newName.lastName !== "")
+    if (newName.lastName !== oldName.lastName)
       changes.lastName = newName.lastName;
     if (newEmail !== profileInfo.email) changes.email = newEmail;
 
@@ -293,14 +295,12 @@ export default function Profile() {
     });
   };
 
-  // Okay on the popup: show new name/email, back to screen 1
+  // Okay on the popup:
   const handleOkay = () => {
-    const name = form.fullName.trim();
-    const email = form.email.trim();
-    setProfileInfo((prev) => ({ ...prev, name, email }));
     setSuccessOpen(false);
     setSubmitted(false);
-    setForm({ ...emptyForm, fullName: name, email });
+    localStorage.removeItem("token");
+    navigate("/", { replace: true });
   };
 
   return (

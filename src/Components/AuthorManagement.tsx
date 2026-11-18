@@ -25,8 +25,8 @@ import {
 } from "react-icons/fi";
 
 import ReaderLayout from "./ReaderLayout";
-import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
-import authorImg from "../assets/Author-image.png";
+import { useAvatarSrc } from "./useAvatarSrc";
+import Pagination from "./Pagination";
 import {
   getUsers,
   getPlans,
@@ -40,6 +40,44 @@ import type { ApiUser, ApiPlan, ApiSubscription } from "../api";
 // List "data" ke andar ho sakti hai, ya seedha array ho
 const toList = (res: any): any[] | null =>
   Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : null;
+
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("") || "?";
+
+function UserAvatar({
+  url,
+  name,
+  size = 32,
+}: {
+  url?: string | null;
+  name: string;
+  size?: number;
+}) {
+  const src = useAvatarSrc(url);
+  return (
+    <Avatar
+      src={src}
+      radius="xl"
+      size={size}
+      styles={{
+        placeholder: {
+          backgroundColor: "#91451F",
+          color: "#FFE8B6",
+          fontWeight: 700,
+          fontSize: Math.round(size * 0.36),
+        },
+      }}
+    >
+      {initialsOf(name)}
+    </Avatar>
+  );
+}
 
 export default function AuthorManagement() {
   const navigate = useNavigate();
@@ -154,7 +192,7 @@ export default function AuthorManagement() {
       shortId: u.id.slice(0, 8),
       name: `${u.firstName} ${u.lastName}`.trim(),
       email: u.email,
-      avatar: u.avatarUrl || authorImg,
+      avatar: u.avatarUrl ?? "",
       plan: planWarning ? "-" : (planNameByUser.get(u.id) ?? "No Plan"),
       signedBook: countWarning ? "-" : String(signedByAuthor.get(u.id) ?? 0),
       pendingRequest: countWarning
@@ -412,7 +450,11 @@ export default function AuthorManagement() {
                         onClick={() => openDetail(author.id)}
                         style={{ cursor: "pointer" }}
                       >
-                        <Avatar src={author.avatar} size={34} radius="xl" />
+                        <UserAvatar
+                          url={author.avatar}
+                          name={author.name}
+                          size={32}
+                        />
 
                         <Box>
                           <Text

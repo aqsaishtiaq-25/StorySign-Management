@@ -26,11 +26,12 @@ import {
 } from "react-icons/fi";
 
 import ReaderLayout from "./ReaderLayout";
-import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
-import readerImg from "../assets/Author-image.png";
+import { useAvatarSrc } from "./useAvatarSrc";
+import Pagination from "./Pagination";
 import {
   getAutographRequests,
   getAutographRequestStats,
+  getUsers,
   type AutographStats,
 } from "../api";
 
@@ -64,6 +65,44 @@ function fullName(u: any) {
   return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "Unknown";
 }
 
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("") || "?";
+
+function UserAvatar({
+  url,
+  name,
+  size = 34,
+}: {
+  url?: string | null;
+  name: string;
+  size?: number;
+}) {
+  const src = useAvatarSrc(url);
+  return (
+    <Avatar
+      src={src}
+      radius="xl"
+      size={size}
+      styles={{
+        placeholder: {
+          backgroundColor: "#91451F",
+          color: "#FFE8B6",
+          fontWeight: 700,
+          fontSize: Math.round(size * 0.36),
+        },
+      }}
+    >
+      {initialsOf(name)}
+    </Avatar>
+  );
+}
+
 // Backend status (PENDING / IN_PROGRESS / COMPLETED / REJECTED) -> UI label
 function statusLabel(raw: unknown): RequestStatus {
   const s = String(raw ?? "").toUpperCase();
@@ -73,14 +112,17 @@ function statusLabel(raw: unknown): RequestStatus {
   return "Pending";
 }
 
-function toRow(r: any): RequestRow {
+function toRow(r: any, avatarById: Map<string, string>): RequestRow {
+  const readerId = String(r.reader?.id ?? r.readerId ?? "");
+  const authorId = String(r.author?.id ?? r.authorId ?? "");
+
   return {
     id: String(r.id),
     shortId: String(r.id).slice(0, 8),
     readerName: fullName(r.reader),
-    readerAvatar: r.reader?.avatarUrl || readerImg,
+    readerAvatar: r.reader?.avatarUrl || avatarById.get(readerId) || "",
     authorName: fullName(r.author),
-    authorAvatar: r.author?.avatarUrl || readerImg,
+    authorAvatar: r.author?.avatarUrl || avatarById.get(authorId) || "",
     book: r.ebook?.title ?? "-",
     date: formatDate(r.createdAt),
     status: statusLabel(r.status),
@@ -122,11 +164,27 @@ export default function RequestsManagement() {
         setLoading(true);
         setError("");
 
-        const res = await getAutographRequests(page, PAGE_SIZE);
+        const [res, usersRes] = await Promise.all([
+          getAutographRequests(page, PAGE_SIZE),
+          getUsers(1, 100).catch(() => null),
+        ]);
+
         const items: any[] = res.data ?? [];
+        const v: any = usersRes;
+        const rawUsers = Array.isArray(v)
+          ? v
+          : (v?.data?.items ?? v?.data ?? v?.items ?? v?.users ?? []);
+        const avatarById = new Map<string, string>();
+        if (Array.isArray(rawUsers)) {
+          rawUsers.forEach((u: any) => {
+            if (u?.id && u?.avatarUrl) {
+              avatarById.set(String(u.id), u.avatarUrl);
+            }
+          });
+        }
 
         if (!cancelled) {
-          setRows(items.map(toRow));
+          setRows(items.map((r) => toRow(r, avatarById)));
           setTotalPages(res.pagination?.totalPages ?? 1);
         }
       } catch (err) {
@@ -220,7 +278,7 @@ export default function RequestsManagement() {
 
     return (
       <Group gap={8} wrap="nowrap">
-        <Avatar src={avatar} size={34} radius="xl" />
+        <UserAvatar url={avatar} name={name} size={34} />
 
         <Text size="11px" c="#FFFFFF" style={{ lineHeight: 1.25 }}>
           {first}
@@ -309,7 +367,7 @@ export default function RequestsManagement() {
                 style={{
                   height: 36,
                   borderRadius: "20px",
-                  backgroundColor: "#383838",
+                  background: "#383838",
                   display: "flex",
                   alignItems: "center",
                   gap: 7,

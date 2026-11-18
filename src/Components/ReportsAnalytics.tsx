@@ -16,6 +16,7 @@ import HighchartsReactWrapper from "highcharts-react-official";
 
 import { FiBook, FiUsers, FiUserCheck } from "react-icons/fi";
 import { BiDollarCircle } from "react-icons/bi";
+import { useAvatarSrc } from "./useAvatarSrc";
 
 import ReaderLayout from "./ReaderLayout";
 import {
@@ -79,6 +80,35 @@ const initialsOf = (name: string): string =>
     .slice(0, 2)
     .map((w) => w[0].toUpperCase())
     .join("");
+
+function UserAvatar({
+  url,
+  name,
+  size = 30,
+}: {
+  url?: string | null;
+  name: string;
+  size?: number;
+}) {
+  const src = useAvatarSrc(url);
+  return (
+    <Avatar
+      src={src}
+      radius="xl"
+      size={size}
+      styles={{
+        placeholder: {
+          backgroundColor: "#91451F",
+          color: "#FFE8B6",
+          fontWeight: 700,
+          fontSize: Math.round(size * 0.36),
+        },
+      }}
+    >
+      {initialsOf(name)}
+    </Avatar>
+  );
+}
 
 type LoadState<T> = { loading: boolean; error: string; data: T | null };
 
@@ -740,21 +770,11 @@ export default function ReportsAnalytics() {
 
                       <Table.Td py={6} style={tdStyle}>
                         <Group gap={8} wrap="nowrap">
-                          {/* photo/email abhi API ma nahi, isliye naam ke letters */}
-                          <Avatar
+                          <UserAvatar
+                            url={artist.avatarUrl || artist.avatar}
+                            name={artist.authorName}
                             size={28}
-                            radius="xl"
-                            styles={{
-                              placeholder: {
-                                backgroundColor: cream,
-                                color: "#6A4335",
-                                fontWeight: 700,
-                                fontSize: 11,
-                              },
-                            }}
-                          >
-                            {initialsOf(artist.authorName)}
-                          </Avatar>
+                          />
 
                           <Text
                             size="12px"

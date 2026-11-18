@@ -16,9 +16,8 @@ import { MdSearch } from "react-icons/md";
 import { FiFilter, FiEye } from "react-icons/fi";
 
 import ReaderLayout from "./ReaderLayout";
-import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
-import authorImg from "../assets/Author-image.png";
-import readerimg from "../assets/Readerimg.png";
+import { useAvatarSrc } from "./useAvatarSrc";
+import Pagination from "./Pagination";
 import ebook from "../assets/Ebook-img.png";
 import {
   getUserById,
@@ -44,6 +43,44 @@ const formatDate = (iso?: string) =>
 
 const statusLabel = (status: string) =>
   status ? status.charAt(0).toUpperCase() + status.slice(1) : "Unknown";
+
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("") || "?";
+
+function UserAvatar({
+  url,
+  name,
+  size = 32,
+}: {
+  url?: string | null;
+  name: string;
+  size?: number;
+}) {
+  const src = useAvatarSrc(url);
+  return (
+    <Avatar
+      src={src}
+      radius="50%"
+      size={size}
+      styles={{
+        placeholder: {
+          backgroundColor: "#91451F",
+          color: "#FFE8B6",
+          fontWeight: 700,
+          fontSize: Math.round(size * 0.36),
+        },
+      }}
+    >
+      {initialsOf(name)}
+    </Avatar>
+  );
+}
 
 interface RequestRow {
   id: string;
@@ -155,7 +192,8 @@ export default function AuthorDetailView() {
         readerName: reader
           ? `${reader.firstName ?? ""} ${reader.lastName ?? ""}`.trim()
           : "Unknown reader",
-        readerAvatar: reader?.avatarUrl || authorImg,
+        readerAvatar:
+          reader?.avatarUrl || userById.get(r.readerId)?.avatarUrl || "",
         title: book?.title ?? "Untitled ebook",
         cover: book?.coverUrl || ebook,
         date: formatDate(r.createdAt),
@@ -236,7 +274,7 @@ export default function AuthorDetailView() {
         }}
       >
         <Flex align="center" gap={18} mb={24} style={{ flexShrink: 0 }}>
-          <Avatar src={author?.avatarUrl || readerimg} size={76} radius="50%" />
+          <UserAvatar url={author?.avatarUrl} name={fullName} size={76} />
 
           <Box>
             <Group gap={10} align="center" mb={4}>
@@ -385,7 +423,11 @@ export default function AuthorDetailView() {
                     {/* READER */}
                     <Table.Td py={12} style={tdStyle}>
                       <Group gap={9} wrap="nowrap">
-                        <Avatar src={row.readerAvatar} size={34} radius="xl" />
+                        <UserAvatar
+                          url={row.readerAvatar}
+                          name={row.readerName}
+                          size={34}
+                        />
 
                         <Text
                           size="12px"

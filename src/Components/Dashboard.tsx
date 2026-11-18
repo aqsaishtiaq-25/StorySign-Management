@@ -23,13 +23,13 @@ import {
 
 import Highcharts from "highcharts";
 import HighchartsReactWrapper from "highcharts-react-official";
+import { useAvatarSrc } from "./useAvatarSrc";
 
 const HighchartsReact =
   (HighchartsReactWrapper as any)?.default || HighchartsReactWrapper;
 
 import ReaderLayout from "./ReaderLayout";
-import readerImg from "../assets/Reader-image.png";
-import authorImg from "../assets/Author-image.png";
+
 import {
   getAutographRequests,
   getDashboardOverview,
@@ -411,6 +411,44 @@ function fullName(u: any) {
   return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "Unknown";
 }
 
+const initialsOf = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("") || "?";
+
+function UserAvatar({
+  url,
+  name,
+  size = 36,
+}: {
+  url?: string | null;
+  name: string;
+  size?: number;
+}) {
+  const src = useAvatarSrc(url);
+  return (
+    <Avatar
+      src={src}
+      radius="xl"
+      size={size}
+      styles={{
+        placeholder: {
+          backgroundColor: "#91451F",
+          color: "#FFE8B6",
+          fontWeight: 700,
+          fontSize: Math.round(size * 0.36),
+        },
+      }}
+    >
+      {initialsOf(name)}
+    </Avatar>
+  );
+}
+
 function statusLabel(raw: unknown): RequestRow["status"] {
   const s = String(raw ?? "").toUpperCase();
   if (s === "COMPLETED") return "Delivered";
@@ -472,7 +510,7 @@ export default function Dashboard() {
         getDashboardRevenueAnalytics(),
         getDashboardUserGrowth(6),
         getAutographRequests(1, 4),
-        getUsers(1, 20),
+        getUsers(1, 100),
       ]);
 
       if (cancelled) return;
@@ -504,6 +542,24 @@ export default function Dashboard() {
       } else errs.growth = msg(gr);
 
       // Recent requests
+      // Pehle users ka map bana lein (id -> avatarUrl)
+      const avatarById = new Map<string, string>();
+      let userList: any[] = [];
+
+      if (us.status === "fulfilled") {
+        const v: any = us.value;
+        const raw = Array.isArray(v)
+          ? v
+          : (v?.data?.items ?? v?.data ?? v?.items ?? v?.users ?? []);
+        userList = Array.isArray(raw) ? raw : [];
+        userList.forEach((u) => {
+          if (u?.id && u?.avatarUrl) {
+            avatarById.set(String(u.id), u.avatarUrl);
+          }
+        });
+      }
+
+      // Recent requests (ab table ko bhi avatarById se photo mil jayegi)
       if (rq.status === "fulfilled") {
         const list: any[] = Array.isArray(rq.value?.data) ? rq.value.data : [];
         setRequests(
@@ -511,9 +567,11 @@ export default function Dashboard() {
             id: String(r.id),
             shortId: String(r.id).slice(0, 8),
             reader: fullName(r.reader),
-            readerAvatar: r.reader?.avatarUrl || readerImg,
+            readerAvatar:
+              r.reader?.avatarUrl || avatarById.get(String(r.reader?.id)) || "",
             author: fullName(r.author),
-            authorAvatar: r.author?.avatarUrl || authorImg,
+            authorAvatar:
+              r.author?.avatarUrl || avatarById.get(String(r.author?.id)) || "",
             book: r.ebook?.title ?? "-",
             status: statusLabel(r.status),
           })),
@@ -522,25 +580,18 @@ export default function Dashboard() {
 
       // Users list (admin ko chhor kar)
       if (us.status === "fulfilled") {
-        const v: any = us.value;
-        const raw = Array.isArray(v)
-          ? v
-          : (v?.data?.items ?? v?.data ?? v?.items ?? v?.users ?? []);
-        const list: any[] = Array.isArray(raw) ? raw : [];
-
         setUsers(
-          list
+          userList
             .filter((u) => String(u.role).toUpperCase() !== "ADMIN")
             .slice(0, 12)
             .map((u) => {
               const role = String(u.role ?? "");
-              const isAuthor = role.toUpperCase() === "AUTHOR";
               return {
                 id: String(u.id),
                 name: fullName(u),
                 role:
                   role.charAt(0).toUpperCase() + role.slice(1).toLowerCase(),
-                avatar: u.avatarUrl || (isAuthor ? authorImg : readerImg),
+                avatar: u.avatarUrl ?? "",
               };
             }),
         );
@@ -852,22 +903,24 @@ export default function Dashboard() {
 
                       <Table.Td>
                         <Group gap={8} wrap="nowrap">
-                          <Avatar
-                            src={req.readerAvatar}
+                          <UserAvatar
+                            url={req.readerAvatar}
+                            name={req.reader}
                             size={22}
-                            radius="xl"
                           />
+
                           <Text size="12px">{req.reader}</Text>
                         </Group>
                       </Table.Td>
 
                       <Table.Td>
                         <Group gap={8} wrap="nowrap">
-                          <Avatar
-                            src={req.authorAvatar}
+                          <UserAvatar
+                            url={req.authorAvatar}
+                            name={req.author}
                             size={22}
-                            radius="xl"
                           />
+
                           <Text size="12px">{req.author}</Text>
                         </Group>
                       </Table.Td>
@@ -938,7 +991,8 @@ export default function Dashboard() {
           >
             {users.map((user) => (
               <Group key={user.id} gap="sm" wrap="nowrap">
-                <Avatar src={user.avatar} size={40} radius="xl" />
+                <UserAvatar url={user.avatar} name={user.name} size={40} />
+
                 <Box>
                   <Text
                     size="13px"
