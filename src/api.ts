@@ -41,8 +41,51 @@ function authHeaders() {
   return { ...baseHeaders, Authorization: `Bearer ${token}` };
 }
 
+// ---------- Global loading + retry ----------
+let pending = 0;
+const listeners = new Set<() => void>();
+
+export function subscribeLoading(cb: () => void) {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+export function getPendingCount() {
+  return pending;
+}
+
+function setPending(n: number) {
+  pending = n;
+  listeners.forEach((l) => l());
+}
+
+// GET fail ho (network / 429 / 5xx) to 2 baar dobara koshish karta hai.
+// POST / PATCH / DELETE kabhi dobara nahi bhejta (double create ka khatra).
+async function request(url: string, init: RequestInit = {}): Promise<Response> {
+  const isGet = !init.method || init.method.toUpperCase() === "GET";
+  const retries = isGet ? 2 : 0;
+
+  if (isGet) setPending(pending + 1);
+  try {
+    for (let i = 0; ; i++) {
+      try {
+        const res = await window.fetch(url, init);
+        const retryable = res.status === 429 || res.status >= 500;
+        if (!retryable || i >= retries) return res;
+      } catch (err) {
+        if (i >= retries) throw err;
+      }
+      await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+    }
+  } finally {
+    if (isGet) setPending(pending - 1);
+  }
+}
+
 export async function login(email: string, password: string) {
-  const res = await fetch(`${BASE_URL}/auth/login`, {
+  const res = await request(`${BASE_URL}/auth/login`, {
     method: "POST",
     headers: baseHeaders,
     body: JSON.stringify({ email, password }),
@@ -53,7 +96,7 @@ export async function login(email: string, password: string) {
 }
 
 export async function signup(userData: SignupData) {
-  const res = await fetch(`${BASE_URL}/users`, {
+  const res = await request(`${BASE_URL}/users`, {
     method: "POST",
     headers: baseHeaders,
     body: JSON.stringify(userData),
@@ -62,7 +105,7 @@ export async function signup(userData: SignupData) {
 }
 
 export async function getMyProfile() {
-  const res = await fetch(`${BASE_URL}/users/my`, {
+  const res = await request(`${BASE_URL}/users/my`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load profile");
@@ -73,7 +116,7 @@ export async function updateMyProfile(data: {
   lastName?: string;
   email?: string;
 }) {
-  const res = await fetch(`${BASE_URL}/users/my`, {
+  const res = await request(`${BASE_URL}/users/my`, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -104,7 +147,7 @@ export async function loadAvatarSrc(url?: string | null): Promise<string | null>
   if (/^(data:|blob:)/i.test(resolved)) return resolved;
 
   const token = localStorage.getItem("token");
-  const res = await fetch(resolved, {
+  const res = await request(resolved, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -127,7 +170,7 @@ export async function updateMyAvatar(file: File) {
   const token = localStorage.getItem("token");
   const form = new FormData();
   form.append(AVATAR_FIELD, file);
-  const res = await fetch(`${BASE_URL}/users/my`, {
+  const res = await request(`${BASE_URL}/users/my`, {
     method: "PATCH",
     // Content-Type khud mat lagayein: browser multipart ki boundary khud banata hai
     headers: { Authorization: `Bearer ${token}` },
@@ -144,7 +187,7 @@ export async function updatePassword(data: {
   newPassword: string;
   confirmPassword: string;
 }) {
-  const res = await fetch(UPDATE_PASSWORD_URL, {
+  const res = await request(UPDATE_PASSWORD_URL, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -156,14 +199,14 @@ export async function updatePassword(data: {
 
 export async function getUsers(page = 1, limit = 100, search = "") {
   const q = search ? `&search=${encodeURIComponent(search)}` : "";
-  const res = await fetch(`${BASE_URL}/users?page=${page}&limit=${limit}${q}`, {
+  const res = await request(`${BASE_URL}/users?page=${page}&limit=${limit}${q}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load users");
 }
 
 export async function getUserById(id: string) {
-  const res = await fetch(`${BASE_URL}/users/${id}`, {
+  const res = await request(`${BASE_URL}/users/${id}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load user");
@@ -175,7 +218,7 @@ export async function getUserById(id: string) {
 // 3) resetPassword  -> resetToken ke saath naya password
 
 export async function forgotPassword(email: string) {
-  const res = await fetch(`${BASE_URL}/auth/forgot-password`, {
+  const res = await request(`${BASE_URL}/auth/forgot-password`, {
     method: "POST",
     headers: baseHeaders,
     body: JSON.stringify({ email }),
@@ -184,7 +227,7 @@ export async function forgotPassword(email: string) {
 }
 
 export async function verifyOtp(email: string, otp: string) {
-  const res = await fetch(`${BASE_URL}/auth/verify-reset-otp`, {
+  const res = await request(`${BASE_URL}/auth/verify-reset-otp`, {
     method: "POST",
     headers: baseHeaders,
     body: JSON.stringify({ email, otp }),
@@ -197,7 +240,7 @@ export async function resetPassword(
   password: string,
   confirmPassword: string,
 ) {
-  const res = await fetch(`${BASE_URL}/auth/reset-password`, {
+  const res = await request(`${BASE_URL}/auth/reset-password`, {
     method: "POST",
     headers: baseHeaders,
     body: JSON.stringify({ resetToken, password, confirmPassword }),
@@ -215,28 +258,28 @@ export type EbookStats = {
 };
 
 export async function getEbookStats(): Promise<EbookStats> {
-  const res = await fetch(`${BASE_URL}/ebooks/stats`, {
+  const res = await request(`${BASE_URL}/ebooks/stats`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load ebook stats");
 }
 
 export async function getEbooks(page = 1, limit = 100) {
-  const res = await fetch(`${BASE_URL}/ebooks?page=${page}&limit=${limit}`, {
+  const res = await request(`${BASE_URL}/ebooks?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load ebooks");
 }
 
 export async function getEbookById(id: string) {
-  const res = await fetch(`${BASE_URL}/ebooks/${id}`, {
+  const res = await request(`${BASE_URL}/ebooks/${id}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load ebook");
 }
 
 export async function deleteEbook(id: string) {
-  const res = await fetch(`${BASE_URL}/ebooks/${id}`, {
+  const res = await request(`${BASE_URL}/ebooks/${id}`, {
     method: "DELETE",
     headers: authHeaders(),
   });
@@ -248,7 +291,7 @@ export async function deleteEbook(id: string) {
 export type AutographStats = Record<string, number | undefined>;
 
 export async function getAutographRequests(page = 1, limit = 5) {
-  const res = await fetch(
+  const res = await request(
     `${BASE_URL}/autograph-requests?page=${page}&limit=${limit}`,
     { headers: authHeaders() },
   );
@@ -256,21 +299,21 @@ export async function getAutographRequests(page = 1, limit = 5) {
 }
 
 export async function getAutographRequestById(id: string) {
-  const res = await fetch(`${BASE_URL}/autograph-requests/${id}`, {
+  const res = await request(`${BASE_URL}/autograph-requests/${id}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load autograph request");
 }
 
 export async function getAutographRequestStats(): Promise<AutographStats> {
-  const res = await fetch(`${BASE_URL}/autograph-requests/stats`, {
+  const res = await request(`${BASE_URL}/autograph-requests/stats`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load autograph request stats");
 }
 
 export async function deleteAutographRequest(id: string) {
-  const res = await fetch(`${BASE_URL}/autograph-requests/${id}`, {
+  const res = await request(`${BASE_URL}/autograph-requests/${id}`, {
     method: "DELETE",
     headers: authHeaders(),
   });
@@ -284,12 +327,12 @@ const FEE_UPDATE_URL = `${BASE_URL}/autograph-fee`;
 const FEE_HISTORY_URL = `${BASE_URL}/autograph-fee/history`;
 
 export async function getCurrentAutographFee(): Promise<{ amount: number }> {
-  const res = await fetch(FEE_CURRENT_URL, { headers: authHeaders() });
+  const res = await request(FEE_CURRENT_URL, { headers: authHeaders() });
   return handle(res, "Could not load autograph fee");
 }
 
 export async function getAutographFeeHistory(page = 1, limit = 5) {
-  const res = await fetch(`${FEE_HISTORY_URL}?page=${page}&limit=${limit}`, {
+  const res = await request(`${FEE_HISTORY_URL}?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load autograph fee history");
@@ -297,7 +340,7 @@ export async function getAutographFeeHistory(page = 1, limit = 5) {
 
 // Body ki field ka naam Postman ke "Update Autograph fee" ki body se match karein
 export async function updateAutographFee(amount: number) {
-  const res = await fetch(FEE_UPDATE_URL, {
+  const res = await request(FEE_UPDATE_URL, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify({ amount }),
@@ -309,12 +352,12 @@ export async function updateAutographFee(amount: number) {
 const DASH_BASE = `${BASE_URL}/admin/dashboard`;
 
 export async function getDashboardOverview() {
-  const res = await fetch(`${DASH_BASE}/overview`, { headers: authHeaders() });
+  const res = await request(`${DASH_BASE}/overview`, { headers: authHeaders() });
   return handle(res, "Could not load dashboard overview");
 }
 
 export async function getDashboardUserGrowth(months = 6) {
-  const res = await fetch(`${DASH_BASE}/user-growth?months=${months}`, {
+  const res = await request(`${DASH_BASE}/user-growth?months=${months}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load user growth");
@@ -323,7 +366,7 @@ export async function getDashboardUserGrowth(months = 6) {
 // months na do to backend apna default (3 mahine) deta hai
 export async function getDashboardRevenueAnalytics(months?: number) {
   const q = months ? `?months=${months}` : "";
-  const res = await fetch(`${DASH_BASE}/revenue-analytics${q}`, {
+  const res = await request(`${DASH_BASE}/revenue-analytics${q}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load revenue analytics");
@@ -331,7 +374,7 @@ export async function getDashboardRevenueAnalytics(months?: number) {
 
 // ---------- Reports & Analytics page ----------
 export async function getMonthlyAutographRequests(months = 6) {
-  const res = await fetch(
+  const res = await request(
     `${DASH_BASE}/monthly-autograph-requests?months=${months}`,
     { headers: authHeaders() },
   );
@@ -343,7 +386,7 @@ export async function getMonthlyAutographRequests(months = 6) {
 const TOP_AUTHORS_URL = `${DASH_BASE}/top-authors`;
 
 export async function getTopAuthors() {
-  const res = await fetch(TOP_AUTHORS_URL, { headers: authHeaders() });
+  const res = await request(TOP_AUTHORS_URL, { headers: authHeaders() });
   return handle(res, "Could not load top authors");
 }
 
@@ -360,7 +403,7 @@ export type ApiPolicy = {
 };
 
 export async function getPolicies(page = 1, limit = 100) {
-  const res = await fetch(`${BASE_URL}/policies?page=${page}&limit=${limit}`, {
+  const res = await request(`${BASE_URL}/policies?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
     cache: "no-store", // purana (cached) jawab dobara na aaye
   });
@@ -368,7 +411,7 @@ export async function getPolicies(page = 1, limit = 100) {
 }
 
 export async function getPolicyById(id: string) {
-  const res = await fetch(`${BASE_URL}/policies/${id}`, {
+  const res = await request(`${BASE_URL}/policies/${id}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load policy");
@@ -380,7 +423,7 @@ export async function createPolicy(data: {
   type: string;
   isPublished: boolean;
 }) {
-  const res = await fetch(`${BASE_URL}/policies`, {
+  const res = await request(`${BASE_URL}/policies`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -397,7 +440,7 @@ export async function updatePolicy(
     isPublished: boolean;
   }>,
 ) {
-  const res = await fetch(`${BASE_URL}/policies/${id}`, {
+  const res = await request(`${BASE_URL}/policies/${id}`, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -406,7 +449,7 @@ export async function updatePolicy(
 }
 
 export async function deletePolicy(id: string) {
-  const res = await fetch(`${BASE_URL}/policies/${id}`, {
+  const res = await request(`${BASE_URL}/policies/${id}`, {
     method: "DELETE",
     headers: authHeaders(),
   });
@@ -426,7 +469,7 @@ export type ApiFaq = {
 };
 
 export async function getFaqs(page = 1, limit = 100) {
-  const res = await fetch(`${BASE_URL}/faqs?page=${page}&limit=${limit}`, {
+  const res = await request(`${BASE_URL}/faqs?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
     cache: "no-store", // purana (cached) jawab dobara na aaye
   });
@@ -434,7 +477,7 @@ export async function getFaqs(page = 1, limit = 100) {
 }
 
 export async function getFaqById(id: string) {
-  const res = await fetch(`${BASE_URL}/faqs/${id}`, {
+  const res = await request(`${BASE_URL}/faqs/${id}`, {
     headers: authHeaders(),
     cache: "no-store",
   });
@@ -447,7 +490,7 @@ export async function createFaq(data: {
   sortOrder: number;
   isPublished: boolean;
 }) {
-  const res = await fetch(`${BASE_URL}/faqs`, {
+  const res = await request(`${BASE_URL}/faqs`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -464,7 +507,7 @@ export async function updateFaq(
     isPublished: boolean;
   }>,
 ) {
-  const res = await fetch(`${BASE_URL}/faqs/${id}`, {
+  const res = await request(`${BASE_URL}/faqs/${id}`, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -473,7 +516,7 @@ export async function updateFaq(
 }
 
 export async function deleteFaq(id: string) {
-  const res = await fetch(`${BASE_URL}/faqs/${id}`, {
+  const res = await request(`${BASE_URL}/faqs/${id}`, {
     method: "DELETE",
     headers: authHeaders(),
   });
@@ -486,7 +529,7 @@ const NOTIF_LIST_URL = `${BASE_URL}/notifications`;
 const NOTIF_SEND_URL = `${BASE_URL}/notifications/broadcast`;
 
 export async function getNotifications(page = 1, limit = 7) {
-  const res = await fetch(`${NOTIF_LIST_URL}?page=${page}&limit=${limit}`, {
+  const res = await request(`${NOTIF_LIST_URL}?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load notifications");
@@ -497,7 +540,7 @@ export async function sendNotification(data: {
   title: string;
   message: string;
 }): Promise<{ message?: string; recipientType?: string; recipientCount?: number }> {
-  const res = await fetch(NOTIF_SEND_URL, {
+  const res = await request(NOTIF_SEND_URL, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -519,7 +562,7 @@ export type ReaderStats = {
 export async function getReaders(page = 1, limit = 5, search = "") {
   // role=READER pehle, phir page/limit/search -- sab '&' se jore hain (sirf ek '?')
   const q = search ? `&search=${encodeURIComponent(search)}` : "";
-  const res = await fetch(
+  const res = await request(
     `${READERS_URL}?role=READER&page=${page}&limit=${limit}${q}`,
     { headers: authHeaders() },
   );
@@ -527,7 +570,7 @@ export async function getReaders(page = 1, limit = 5, search = "") {
 }
 
 export async function getReaderStats(): Promise<ReaderStats> {
-  const res = await fetch(READER_STATS_URL, { headers: authHeaders() });
+  const res = await request(READER_STATS_URL, { headers: authHeaders() });
   return handle(res, "Could not load reader stats");
 }
 
@@ -539,7 +582,7 @@ export async function changeUserStatus(
   action: UserAction,
   reason = "Updated by admin",
 ) {
-  const res = await fetch(`${BASE_URL}/users/admin/${id}/${action}`, {
+  const res = await request(`${BASE_URL}/users/admin/${id}/${action}`, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify({ reason }),
@@ -573,7 +616,7 @@ export type ApiSubscription = {
 };
 
 export async function getPlans(page = 1, limit = 100) {
-  const res = await fetch(`${PLANS_URL}?page=${page}&limit=${limit}`, {
+  const res = await request(`${PLANS_URL}?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
     cache: "no-store",
   });
@@ -587,7 +630,7 @@ export async function createPlan(data: {
   features: string[];
   isActive: boolean;
 }) {
-  const res = await fetch(PLANS_URL, {
+  const res = await request(PLANS_URL, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -605,7 +648,7 @@ export async function updatePlan(
     isActive: boolean;
   }>,
 ) {
-  const res = await fetch(`${PLANS_URL}/${id}`, {
+  const res = await request(`${PLANS_URL}/${id}`, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -614,7 +657,7 @@ export async function updatePlan(
 }
 
 export async function deletePlan(id: string) {
-  const res = await fetch(`${PLANS_URL}/${id}`, {
+  const res = await request(`${PLANS_URL}/${id}`, {
     method: "DELETE",
     headers: authHeaders(),
   });
@@ -622,7 +665,7 @@ export async function deletePlan(id: string) {
 }
 
 export async function getSubscriptions(page = 1, limit = 100) {
-  const res = await fetch(`${SUBSCRIPTIONS_URL}?page=${page}&limit=${limit}`, {
+  const res = await request(`${SUBSCRIPTIONS_URL}?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
     cache: "no-store",
   });
@@ -634,7 +677,7 @@ export async function getSubscriptions(page = 1, limit = 100) {
 // {{baseUrl}}/subscriptions/<id>/cancel nahi hai, to neeche wali line mein
 // "/cancel" ko us ke mutabiq badal dein.
 export async function cancelSubscription(id: string) {
-  const res = await fetch(`${SUBSCRIPTIONS_URL}/${id}/cancel`, {
+  const res = await request(`${SUBSCRIPTIONS_URL}/${id}/cancel`, {
     method: "PATCH",
     headers: authHeaders(),
   });
@@ -642,7 +685,7 @@ export async function cancelSubscription(id: string) {
 }
 
 export async function deleteSubscription(id: string) {
-  const res = await fetch(`${SUBSCRIPTIONS_URL}/${id}`, {
+  const res = await request(`${SUBSCRIPTIONS_URL}/${id}`, {
     method: "DELETE",
     headers: authHeaders(),
   });
@@ -656,7 +699,7 @@ const MY_SUBSCRIPTION_URL = `${SUBSCRIPTIONS_URL}/my`;
 const CANCEL_MY_SUBSCRIPTION_URL = `${SUBSCRIPTIONS_URL}/my/cancel`;
 
 export async function subscribeToPlan(planId: string) {
-  const res = await fetch(SUBSCRIPTIONS_URL, {
+  const res = await request(SUBSCRIPTIONS_URL, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ planId }),
@@ -666,7 +709,7 @@ export async function subscribeToPlan(planId: string) {
 
 // Active subscription na ho to null wapas deta hai (error nahi)
 export async function getMySubscription(): Promise<ApiSubscription | null> {
-  const res = await fetch(MY_SUBSCRIPTION_URL, {
+  const res = await request(MY_SUBSCRIPTION_URL, {
     headers: authHeaders(),
     cache: "no-store",
   });
@@ -686,7 +729,7 @@ export async function getMySubscription(): Promise<ApiSubscription | null> {
 }
 
 export async function cancelMySubscription() {
-  const res = await fetch(CANCEL_MY_SUBSCRIPTION_URL, {
+  const res = await request(CANCEL_MY_SUBSCRIPTION_URL, {
     method: "PATCH",
     headers: authHeaders(),
   });
@@ -730,7 +773,7 @@ export async function getAllAutographRequests(): Promise<any[]> {
 const DEFAULT_AUTHOR_MESSAGE = "I have signed your ebook. Hope you like it.";
 
 export async function acceptAutographRequest(id: string) {
-  const res = await fetch(`${BASE_URL}/autograph-requests/${id}/accept`, {
+  const res = await request(`${BASE_URL}/autograph-requests/${id}/accept`, {
     method: "PATCH",
     headers: authHeaders(),
   });
@@ -738,7 +781,7 @@ export async function acceptAutographRequest(id: string) {
 }
 
 export async function rejectAutographRequest(id: string) {
-  const res = await fetch(`${BASE_URL}/autograph-requests/${id}/reject`, {
+  const res = await request(`${BASE_URL}/autograph-requests/${id}/reject`, {
     method: "PATCH",
     headers: authHeaders(),
   });
@@ -753,7 +796,7 @@ export async function signAutographRequest(
     paymentAmount?: number;
   },
 ) {
-  const res = await fetch(`${BASE_URL}/autograph-requests/${id}`, {
+  const res = await request(`${BASE_URL}/autograph-requests/${id}`, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -784,7 +827,7 @@ export async function signAutographRequestDefault(
 
 // Unsigned ka endpoint mujhe nahi pata: Postman se isay milayein
 export async function unsignAutographRequest(id: string) {
-  const res = await fetch(`${BASE_URL}/autograph-requests/${id}/unsigned`, {
+  const res = await request(`${BASE_URL}/autograph-requests/${id}/unsigned`, {
     method: "PATCH",
     headers: authHeaders(),
   });
@@ -814,19 +857,19 @@ export type ApiSupportQuery = {
 };
 
 export async function getSupportQueries(page = 1, limit = 5) {
-  const res = await fetch(`${SQ_URL}?page=${page}&limit=${limit}`, {
+  const res = await request(`${SQ_URL}?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load support queries");
 }
 
 export async function getSupportQueryStats(): Promise<SupportQueryStats> {
-  const res = await fetch(`${SQ_URL}/stats`, { headers: authHeaders() });
+  const res = await request(`${SQ_URL}/stats`, { headers: authHeaders() });
   return handle(res, "Could not load support query stats");
 }
 
 export async function getSupportQueryById(id: string) {
-  const res = await fetch(`${SQ_URL}/${id}`, { headers: authHeaders() });
+  const res = await request(`${SQ_URL}/${id}`, { headers: authHeaders() });
   return handle(res, "Could not load support query");
 }
 
@@ -834,7 +877,7 @@ export async function createSupportQuery(data: {
   subject: string;
   message: string;
 }) {
-  const res = await fetch(SQ_URL, {
+  const res = await request(SQ_URL, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -846,7 +889,7 @@ export async function updateSupportQuery(
   id: string,
   data: Partial<{ status: string; adminReply: string }>,
 ) {
-  const res = await fetch(`${SQ_URL}/${id}`, {
+  const res = await request(`${SQ_URL}/${id}`, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify(data),
@@ -855,7 +898,7 @@ export async function updateSupportQuery(
 }
 
 export async function deleteSupportQuery(id: string) {
-  const res = await fetch(`${SQ_URL}/${id}`, {
+  const res = await request(`${SQ_URL}/${id}`, {
     method: "DELETE",
     headers: authHeaders(),
   });

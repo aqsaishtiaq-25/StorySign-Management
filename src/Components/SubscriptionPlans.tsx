@@ -288,6 +288,10 @@ export default function SubscriptionPlans() {
     : null;
   const authorPlans = plans.filter((p) => p.isActive);
 
+  // Plan cards ke columns: 2 plans hon to aadhi aadhi width, zyada hon to 3 column
+  const planCols = Math.min(Math.max(plans.length, 2), 3);
+  const authorPlanCols = Math.min(Math.max(authorPlans.length, 2), 3);
+
   const handleSubscribe = async (plan: ApiPlan) => {
     if (
       !window.confirm(
@@ -724,7 +728,7 @@ export default function SubscriptionPlans() {
             </Text>
           )}
 
-          <SimpleGrid cols={3} spacing={14}>
+          <SimpleGrid cols={authorPlanCols} spacing={14}>
             {authorPlans.map((plan) => {
               const isCurrent = hasActive && mySub?.planId === plan.id;
 
@@ -732,7 +736,6 @@ export default function SubscriptionPlans() {
                 <Box
                   key={plan.id}
                   style={{
-                    minHeight: "190px",
                     backgroundColor: accent,
                     borderRadius: "12px",
                     padding: "14px 16px",
@@ -843,12 +846,11 @@ export default function SubscriptionPlans() {
                 </Text>
               )}
 
-              <SimpleGrid cols={3} spacing={14}>
+              <SimpleGrid cols={planCols} spacing={14}>
                 {plans.map((plan) => (
                   <Box
                     key={plan.id}
                     style={{
-                      height: "160px",
                       backgroundColor: accent,
                       borderRadius: "12px",
                       padding: "14px 16px",

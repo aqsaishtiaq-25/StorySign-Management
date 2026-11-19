@@ -91,6 +91,16 @@ function pickList(res: any): any[] {
     : (res?.data ?? res?.items ?? res?.notifications ?? []);
 }
 
+// Khali fields ka message:
+// ["recipients", "title", "message"] -> "Please enter recipients, title and message."
+// ["title"]                          -> "Please enter title."
+function requiredMessage(missing: string[]): string {
+  if (missing.length === 0) return "";
+  if (missing.length === 1) return `Please enter ${missing[0]}.`;
+  const last = missing[missing.length - 1];
+  return `Please enter ${missing.slice(0, -1).join(", ")} and ${last}.`;
+}
+
 /* ---------------- shared styles ---------------- */
 const searchInputStyles = {
   root: { width: 280 },
@@ -106,11 +116,12 @@ const searchInputStyles = {
 };
 
 // sizes screen ki height (vh) ke hisaab se scale hote hain taake sab ek screen mein fit ho
-const fieldInput = (hasError: boolean) => ({
+// Error par ab box laal nahi hota, error ka message neeche dikhta hai
+const fieldInput = () => ({
   height: "clamp(36px, 5.2vh, 44px)",
   minHeight: 0,
   background: C.bg,
-  border: hasError ? "1px solid #E65A5A" : "none",
+  border: "none",
   borderRadius: 4,
   color: "#FFFFFF",
   fontSize: 14,
@@ -372,20 +383,27 @@ function SendForm({
   const [sending, setSending] = useState<boolean>(false);
   const [sendError, setSendError] = useState<string>("");
 
-  const recipientError = submitted && !recipient;
-  const titleError = submitted && title.trim() === "";
-  const messageError = submitted && message.trim() === "";
+  // Jo fields khali hain unke naam. Send dabane ke baad ye har change par khud update hota hai,
+  // is liye ek field bharte hi uska naam message se hat jata hai
+  const missing = [
+    !recipient && "recipients",
+    title.trim() === "" && "title",
+    message.trim() === "" && "message",
+  ].filter(Boolean) as string[];
+
+  const validationMessage = submitted ? requiredMessage(missing) : "";
+  const errorText = validationMessage || sendError;
 
   const handleSend = async () => {
     setSubmitted(true);
     setSendError("");
-    if (!recipient || title.trim() === "" || message.trim() === "") return;
+    if (missing.length > 0) return;
     if (sending) return;
 
     try {
       setSending(true);
       const res = await sendNotification({
-        recipientType: recipient,
+        recipientType: recipient as string,
         title: title.trim(),
         message: message.trim(),
       });
@@ -437,7 +455,7 @@ function SendForm({
         allowDeselect={false}
         classNames={{ input: "np-input", option: "np-option" }}
         styles={{
-          input: fieldInput(recipientError),
+          input: fieldInput(),
           section: { color: C.cream },
           dropdown: { background: C.bg, border: `1px solid ${C.border}` },
         }}
@@ -452,7 +470,7 @@ function SendForm({
         value={title}
         onChange={(e) => setTitle(e.currentTarget.value)}
         classNames={{ input: "np-input" }}
-        styles={{ input: fieldInput(titleError) }}
+        styles={{ input: fieldInput() }}
       />
 
       <Text c={C.cream} fw={600} style={labelStyle}>
@@ -467,16 +485,17 @@ function SendForm({
         classNames={{ input: "np-input" }}
         styles={{
           input: {
-            ...fieldInput(messageError),
+            ...fieldInput(),
             height: "clamp(80px, 17vh, 150px)",
             padding: 20,
           },
         }}
       />
 
-      {sendError && (
-        <Text c="#FF6B6B" size="sm" mt={10}>
-          {sendError}
+      {/* Khali fields ka message ya backend ka error (ek waqt mein ek hi) */}
+      {errorText && (
+        <Text c="#FF6B6B" size="sm" mt={10} role="alert">
+          {errorText}
         </Text>
       )}
 

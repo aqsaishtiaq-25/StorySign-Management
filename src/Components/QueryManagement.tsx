@@ -4,9 +4,11 @@ import {
   Box,
   Button,
   Flex,
+  Group,
   Loader,
   Modal,
   Select,
+  SimpleGrid,
   Table,
   Text,
   Textarea,
@@ -50,6 +52,7 @@ const C = {
   white: "#F7E5D7",
   muted: "#C9C3B6",
   field: "#303030",
+  number: "#2A1005", // stat cards ka text (Author / Reader Management jaisa)
 };
 
 /* ---------------- types ---------------- */
@@ -70,7 +73,7 @@ type StatItem = {
   icon: IconType;
 };
 
-/** ek page par kitni rows dikhani hain */
+/** ek page par kitni rows dikhani hain (chhote cards ke baad 5 rows fit hoti hain) */
 const PAGE_SIZE = 4;
 
 const statusStyle: Record<
@@ -158,29 +161,29 @@ function formatDate(iso: string) {
 
 /* ---------------- chhote reusable components ---------------- */
 
+// Author / Reader Management ke cards jaisa: title upar left, number neeche, icon upar right
 function StatCard({ label, value, icon: Icon }: StatItem) {
   return (
     <Box
-      bg={C.cream}
       style={{
-        position: "relative",
-        padding: "18px 22px",
-        borderRadius: 12,
-        boxShadow: "0 3px 8px rgba(0,0,0,0.35)",
+        backgroundColor: C.cream,
+        borderRadius: "14px",
+        padding: "12px 14px",
       }}
     >
-      <Text size="13px" c="#51473B" style={{ lineHeight: 1 }}>
-        {label}
-      </Text>
-      <Text
-        size="22px"
-        fw={700}
-        c="#171717"
-        style={{ lineHeight: 1, marginTop: 10 }}
-      >
-        {value}
-      </Text>
-      <Icon size={22} color="#2B2622" />
+      <Group justify="space-between" align="flex-start">
+        <Box>
+          <Text size="12px" c={C.number} fw={600}>
+            {label}
+          </Text>
+
+          <Text size="22px" fw={800} c={C.number} mt={2}>
+            {value}
+          </Text>
+        </Box>
+
+        <Icon size={18} color={C.number} />
+      </Group>
     </Box>
   );
 }
@@ -574,41 +577,30 @@ function AdminQueries() {
         .action:hover { opacity: .85; }
       `}</style>
 
-      {/* Inner panel */}
+      {/* Inner panel (Author / Reader Management jaisi padding aur gap) */}
       <Box
         bg={C.panel}
         style={{
           flex: 1,
           minHeight: 0,
-          padding: "24px 28px 18px",
+          padding: "20px",
           borderRadius: 20,
           display: "flex",
           flexDirection: "column",
+          gap: "20px",
           overflow: "hidden",
           boxSizing: "border-box",
         }}
       >
         {/* Stat cards */}
-        <Box
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 20,
-            flexShrink: 0,
-          }}
-        >
+        <SimpleGrid cols={4} spacing="md" style={{ flexShrink: 0 }}>
           {statItems.map((item) => (
             <StatCard key={item.label} {...item} />
           ))}
-        </Box>
+        </SimpleGrid>
 
         {/* Title + search + filter */}
-        <Flex
-          align="center"
-          justify="space-between"
-          mt={32}
-          style={{ flexShrink: 0 }}
-        >
+        <Flex align="center" justify="space-between" style={{ flexShrink: 0 }}>
           <Text size="26px" fw={600} c={C.cream} style={{ lineHeight: 1 }}>
             All Queries
           </Text>
@@ -656,7 +648,6 @@ function AdminQueries() {
         {/* Table */}
         <Box
           className="hide-scrollbar"
-          mt={18}
           style={{ flex: 1, minHeight: 0, overflow: "auto" }}
         >
           {loading ? (

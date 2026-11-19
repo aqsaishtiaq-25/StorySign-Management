@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import GlobalLoader from "./GlobalLoader";
 import {
   Box,
   Flex,
@@ -268,83 +269,95 @@ export default function ReaderLayout({
   );
 
   return (
-    <Flex
-      h="100vh"
-      w="100vw"
-      bg={outerBg}
-      c="white"
-      style={{ overflow: "hidden", fontFamily: "sans-serif" }}
-    >
-      <Box
-        w={180}
-        py="md"
-        px="xs"
-        style={{
-          backgroundColor: outerBg,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          height: "100%",
-          flexShrink: 0,
-        }}
+    <>
+      <GlobalLoader />
+      <Flex
+        h="100vh"
+        w="100vw"
+        bg={outerBg}
+        c="white"
+        style={{ overflow: "hidden", fontFamily: "sans-serif" }}
       >
-        <img
-          src={logo}
-          alt="StorySign"
-          style={{ width: "64px", height: "auto", marginBottom: "10px" }}
-        />
-
         <Box
+          w={180}
+          py="md"
+          px="xs"
           style={{
-            flex: 1,
-            minHeight: 0,
-            width: "100%",
+            backgroundColor: outerBg,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "flex-start",
-            gap: "clamp(21px, 2.4vh, 21px)",
+            height: "100%",
+            flexShrink: 0,
           }}
         >
-          {isDashboard ? (
-            activeBlock(MdDashboard)
-          ) : (
-            <UnstyledButton
-              onClick={() => goTo("/dashboard")}
-              style={{ display: "flex" }}
-            >
-              <MdDashboard size={20} color={accentCardBg} />
-            </UnstyledButton>
-          )}
+          <img
+            src={logo}
+            alt="StorySign"
+            style={{ width: "64px", height: "auto", marginBottom: "10px" }}
+          />
 
-          {navIcons.map((Icon, idx) => {
-            if (idx === activeIndex) {
+          <Box
+            style={{
+              flex: 1,
+              minHeight: 0,
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "flex-start",
+              gap: "clamp(21px, 2.4vh, 21px)",
+            }}
+          >
+            {isDashboard ? (
+              activeBlock(MdDashboard)
+            ) : (
+              <UnstyledButton
+                onClick={() => goTo("/dashboard")}
+                style={{ display: "flex" }}
+              >
+                <MdDashboard size={20} color={accentCardBg} />
+              </UnstyledButton>
+            )}
+
+            {navIcons.map((Icon, idx) => {
+              if (idx === activeIndex) {
+                return (
+                  <UnstyledButton
+                    key={idx}
+                    onClick={() => goTo(navRoutes[idx])}
+                    style={{ display: "flex" }}
+                  >
+                    {activeBlock(Icon)}
+                  </UnstyledButton>
+                );
+              }
+
               return (
                 <UnstyledButton
                   key={idx}
                   onClick={() => goTo(navRoutes[idx])}
-                  style={{ display: "flex" }}
+                  style={{
+                    display: "flex",
+                    cursor: navRoutes[idx] ? "pointer" : "default",
+                  }}
                 >
-                  {activeBlock(Icon)}
+                  <Icon
+                    size={17}
+                    color={accentCardBg}
+                    style={{ opacity: 0.9 }}
+                  />
                 </UnstyledButton>
               );
-            }
+            })}
+          </Box>
 
-            return (
-              <UnstyledButton
-                key={idx}
-                onClick={() => goTo(navRoutes[idx])}
-                style={{
-                  display: "flex",
-                  cursor: navRoutes[idx] ? "pointer" : "default",
-                }}
-              >
-                <Icon size={17} color={accentCardBg} style={{ opacity: 0.9 }} />
-              </UnstyledButton>
-            );
-          })}
-        </Box>
+          <Box pt="xs" mt="auto">
+            <UnstyledButton onClick={handleLogout}>
+              <Group gap={6} wrap="nowrap">
+                <BiLogOut size={18} color={accentCardBg} />
 
+<<<<<<< Updated upstream
         <Box pt="xs" mt="auto">
           <UnstyledButton onClick={handleLogout}>
             <Group gap={6} wrap="nowrap">
@@ -441,20 +454,109 @@ export default function ReaderLayout({
             </UnstyledButton>
           </Group>
         </Flex>
+=======
+                <Text size="xs" fw={600} c={accentCardBg}>
+                  Log Out
+                </Text>
+              </Group>
+            </UnstyledButton>
+          </Box>
+        </Box>
+>>>>>>> Stashed changes
 
         <Box
           style={{
             flex: 1,
-            minHeight: 0,
+            minWidth: 0,
+            backgroundColor: outerBg,
+            padding: "16px 24px 16px 24px",
+            height: "100%",
             display: "flex",
             flexDirection: "column",
+            overflow: "hidden",
+            boxSizing: "border-box",
           }}
         >
-          <SearchContext.Provider value={debouncedSearch}>
-            {children}
-          </SearchContext.Provider>
+          <Flex align="center" justify="space-between" mb="md">
+            <Text size="22px" fw={600} c={accentCardBg}>
+              {title}
+            </Text>
+
+            <Group gap={28} align="center">
+              <TextInput
+                placeholder="Search"
+                value={searchText}
+                onChange={(e) => setSearchText(e.currentTarget.value)}
+                leftSection={<MdSearch size={18} color="#A0A0A0" />}
+                styles={{
+                  input: {
+                    width: "240px",
+                    height: "36px",
+                    backgroundColor: "transparent",
+                    border: "1px solid rgba(255, 255, 255, 0.25)",
+                    borderRadius: "20px",
+                    color: "#FFFFFF",
+                    paddingLeft: "36px",
+                    fontSize: "13px",
+                  },
+                }}
+              />
+
+              <Group gap="xs" align="center" style={{ width: 170 }}>
+                {/* photo na ho to naam ke pehle letters dikhte hain */}
+                <Avatar
+                  src={headerAvatarSrc}
+                  size={36}
+                  radius="xl"
+                  styles={{
+                    placeholder: {
+                      backgroundColor: "#FFE8B6",
+                      color: "#6A4335",
+                      fontWeight: 700,
+                    },
+                  }}
+                >
+                  {initialsOf(me.name)}
+                </Avatar>
+
+                <Box style={{ minWidth: 0 }}>
+                  <Text
+                    size="12px"
+                    fw={500}
+                    c="#FFFFFF"
+                    truncate
+                    style={{ lineHeight: 1.2 }}
+                  >
+                    {me.name}
+                  </Text>
+
+                  <Text
+                    size="10px"
+                    c="#8C8C8C"
+                    truncate
+                    style={{ lineHeight: 1.2 }}
+                  >
+                    {me.email}
+                  </Text>
+                </Box>
+              </Group>
+            </Group>
+          </Flex>
+
+          <Box
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <SearchContext.Provider value={debouncedSearch}>
+              {children}
+            </SearchContext.Provider>
+          </Box>
         </Box>
-      </Box>
-    </Flex>
+      </Flex>
+    </>
   );
 }
