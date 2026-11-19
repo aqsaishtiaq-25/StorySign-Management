@@ -499,15 +499,17 @@ export default function Dashboard() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [revenueLoading, setRevenueLoading] = useState(true);
   const [period, setPeriod] = useState<string>("6 Months");
+
+  const months = period === "12 Months" ? 12 : 6;
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      const [ov, rev, gr, rq, us] = await Promise.allSettled([
+      const [ov, gr, rq, us] = await Promise.allSettled([
         getDashboardOverview(),
-        getDashboardRevenueAnalytics(),
         getDashboardUserGrowth(6),
         getAutographRequests(1, 4),
         getUsers(1, 100),
@@ -524,14 +526,6 @@ export default function Dashboard() {
         console.log("Dashboard overview:", ov.value);
         setOverview(unwrap(ov.value));
       } else errs.overview = msg(ov);
-
-      // Revenue chart
-      if (rev.status === "fulfilled") {
-        console.log("Dashboard revenue:", rev.value);
-        const s = toSeries(rev.value);
-        if (s) setRevenue(s);
-        else errs.revenue = "Unexpected response format";
-      } else errs.revenue = msg(rev);
 
       // User growth chart
       if (gr.status === "fulfilled") {
@@ -597,7 +591,7 @@ export default function Dashboard() {
         );
       } else errs.users = msg(us);
 
-      setErrors(errs);
+      setErrors((prev) => ({ ...prev, ...errs }));
       setLoading(false);
     }
 
@@ -607,8 +601,48 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Dropdown: backend se poora data aata hai, yahan aakhri 6 ya 12 mahine kaat te hain
-  const months = period === "12 Months" ? 12 : 6;
+  // Revenue chart (jab bhi period / months change ho, backend se naya data laayega)
+  useEffect(() => {
+    let cancelled = false;
+    setRevenueLoading(true);
+
+    async function loadRevenue() {
+      try {
+        const res = await getDashboardRevenueAnalytics(months);
+        if (cancelled) return;
+
+        console.log("Dashboard revenue:", res);
+        const s = toSeries(res);
+        if (s) {
+          setRevenue(s);
+          setErrors((prev) => {
+            const { revenue: _, ...rest } = prev;
+            return rest;
+          });
+        } else {
+          setErrors((prev) => ({
+            ...prev,
+            revenue: "Unexpected response format",
+          }));
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setErrors((prev) => ({
+          ...prev,
+          revenue: err instanceof Error ? err.message : "Something went wrong",
+        }));
+      } finally {
+        if (!cancelled) setRevenueLoading(false);
+      }
+    }
+
+    loadRevenue();
+    return () => {
+      cancelled = true;
+    };
+  }, [months]);
+
+  // Dropdown: aakhri 6 ya 12 mahine
   const cut = (s: Series | null): Series | null =>
     s
       ? {
@@ -675,8 +709,12 @@ export default function Dashboard() {
     </Flex>
   );
 
-  const chartBody = (options: Highcharts.Options | null, error?: string) => {
-    if (loading) return emptyMsg("Loading...");
+  const chartBody = (
+    options: Highcharts.Options | null,
+    error?: string,
+    isLoading = loading,
+  ) => {
+    if (isLoading) return emptyMsg("Loading...");
     if (error) return emptyMsg(error);
     if (!options) return emptyMsg("No data");
     return <ChartBox options={options} />;
@@ -823,7 +861,7 @@ export default function Dashboard() {
                   />
                 </Flex>
 
-                {chartBody(revenueOptions, errors.revenue)}
+                {chartBody(revenueOptions, errors.revenue, revenueLoading)}
               </Box>
 
               <Box
@@ -844,7 +882,7 @@ export default function Dashboard() {
                   </Text>
                 </Flex>
 
-                {chartBody(growthOptions, errors.growth)}
+                {chartBody(growthOptions, errors.growth, loading)}
               </Box>
             </SimpleGrid>
           </Box>

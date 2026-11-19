@@ -115,10 +115,12 @@ function toHistoryRow(h: any, index: number): HistoryRow {
   let updatedBy = "Fee has been updated by Admin";
 
   if (typeof by === "string" && by.trim()) {
-    updatedBy = by.trim();
+    updatedBy = by.trim().replace(/\bAdmin\s+Admin\b/i, "Admin");
   } else if (by && typeof by === "object") {
     const name = `${by.firstName ?? ""} ${by.lastName ?? ""}`.trim();
-    if (name) updatedBy = `Fee has been updated by Admin (${name})`;
+    if (name && name.toLowerCase() !== "admin") {
+      updatedBy = `Fee has been updated by Admin (${name})`;
+    }
   }
 
   return {
@@ -127,6 +129,41 @@ function toHistoryRow(h: any, index: number): HistoryRow {
     updatedBy,
     date: formatDate(h.createdAt ?? h.updatedAt ?? h.date),
   };
+}
+
+function validateAutographFee(rawValue: string): string {
+  const cleaned = rawValue.replace(/^\$/, "").trim();
+
+  if (!cleaned) {
+    return "Please enter an autograph fee.";
+  }
+
+  if (/[^0-9.]/.test(cleaned)) {
+    return "Please enter numbers only (e.g., 12 or 5.80).";
+  }
+
+  if (
+    (cleaned.match(/\./g) || []).length > 1 ||
+    cleaned.startsWith(".") ||
+    cleaned.endsWith(".")
+  ) {
+    return "Please enter a valid amount (e.g., 12 or 5.80).";
+  }
+
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) {
+    return "Maximum 2 decimal places are allowed (e.g., 1.23 or 5.80).";
+  }
+
+  const num = Number(cleaned);
+  if (num < 1) {
+    return "Autograph fee must be at least $1.";
+  }
+
+  if (num > 100 || (num === 100 && cleaned.includes("."))) {
+    return "Autograph fee cannot exceed $100 (enter 100 without decimals).";
+  }
+
+  return "";
 }
 
 export default function Autograph() {
@@ -216,9 +253,7 @@ export default function Autograph() {
     : filteredHistory.slice(start, start + PAGE_SIZE);
   // --------------------------------
 
-  const cleanFee = fee.replace("$", "").trim();
-  const canSubmit =
-    cleanFee !== "" && !Number.isNaN(Number(cleanFee)) && Number(cleanFee) > 0;
+  const cleanFee = fee.replace(/^\$/, "").trim();
 
   const openEdit = () => {
     setFee("");
@@ -226,8 +261,24 @@ export default function Autograph() {
     setView("edit");
   };
 
+  const handleFeeChange = (val: string) => {
+    setFee(val);
+    const cleaned = val.replace(/^\$/, "").trim();
+    if (/[^0-9.]/.test(cleaned)) {
+      setSaveError("Please enter numbers only (e.g., 12 or 5.80).");
+    } else if (saveError) {
+      setSaveError(validateAutographFee(val));
+    }
+  };
+
   const handleUpdate = async () => {
-    if (!canSubmit || saving) return;
+    if (saving) return;
+
+    const validationError = validateAutographFee(fee);
+    if (validationError) {
+      setSaveError(validationError);
+      return;
+    }
 
     try {
       setSaving(true);
@@ -554,7 +605,7 @@ export default function Autograph() {
               aria-label="Updated autograph fee"
               placeholder="$12"
               value={fee}
-              onChange={(e) => setFee(e.currentTarget.value)}
+              onChange={(e) => handleFeeChange(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleUpdate();
               }}
@@ -583,7 +634,6 @@ export default function Autograph() {
               <Button
                 className="action"
                 onClick={handleUpdate}
-                disabled={!canSubmit}
                 loading={saving}
                 w={u(249)}
                 h={u(51)}

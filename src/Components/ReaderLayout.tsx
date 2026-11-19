@@ -396,44 +396,49 @@ export default function ReaderLayout({
               }}
             />
 
-            <Group gap="xs" align="center" style={{ width: 170 }}>
-              {/* photo na ho to naam ke pehle letters dikhte hain */}
-              <Avatar
-                src={headerAvatarSrc}
-                size={36}
-                radius="xl"
-                styles={{
-                  placeholder: {
-                    backgroundColor: "#FFE8B6",
-                    color: "#6A4335",
-                    fontWeight: 700,
-                  },
-                }}
-              >
-                {initialsOf(me.name)}
-              </Avatar>
-
-              <Box style={{ minWidth: 0 }}>
-                <Text
-                  size="12px"
-                  fw={500}
-                  c="#FFFFFF"
-                  truncate
-                  style={{ lineHeight: 1.2 }}
+            <UnstyledButton
+              onClick={() => navigate("/profile")}
+              style={{ cursor: "pointer" }}
+            >
+              <Group gap="xs" align="center" style={{ width: 170 }}>
+                {/* photo na ho to naam ke pehle letters dikhte hain */}
+                <Avatar
+                  src={headerAvatarSrc}
+                  size={36}
+                  radius="xl"
+                  styles={{
+                    placeholder: {
+                      backgroundColor: "#FFE8B6",
+                      color: "#6A4335",
+                      fontWeight: 700,
+                    },
+                  }}
                 >
-                  {me.name}
-                </Text>
+                  {initialsOf(me.name)}
+                </Avatar>
 
-                <Text
-                  size="10px"
-                  c="#8C8C8C"
-                  truncate
-                  style={{ lineHeight: 1.2 }}
-                >
-                  {me.email}
-                </Text>
-              </Box>
-            </Group>
+                <Box style={{ minWidth: 0 }}>
+                  <Text
+                    size="12px"
+                    fw={500}
+                    c="#FFFFFF"
+                    truncate
+                    style={{ lineHeight: 1.2 }}
+                  >
+                    {me.name}
+                  </Text>
+
+                  <Text
+                    size="10px"
+                    c="#8C8C8C"
+                    truncate
+                    style={{ lineHeight: 1.2 }}
+                  >
+                    {me.email}
+                  </Text>
+                </Box>
+              </Group>
+            </UnstyledButton>
           </Group>
         </Flex>
 
