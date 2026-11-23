@@ -904,3 +904,17 @@ export async function deleteSupportQuery(id: string) {
   });
   return handle(res, "Could not delete support query");
 }
+
+
+///firebase
+export async function registerDeviceToken(deviceToken: string) {
+  const res = await fetch(`${BASE_URL}/notifications/register-device`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      deviceToken,
+      platform: "web",
+    }),
+  });
+  return handle(res, "Could not register device token");
+}

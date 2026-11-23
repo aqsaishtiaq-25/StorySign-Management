@@ -33,9 +33,10 @@ import {
 import { BiLogOut, BiDollarCircle, BiLineChart } from "react-icons/bi";
 
 import logo from "../assets/logo.png";
-import { getMyProfile } from "../api";
+import { getMyProfile, registerDeviceToken } from "../api";
 import { SearchContext } from "./SearchContext.ts";
 import { useAvatarSrc } from "./useAvatarSrc";
+import { getDeviceToken, onForegroundNotification } from "../firebase";
 
 interface ReaderLayoutProps {
   children: any;
@@ -57,7 +58,6 @@ interface ReaderLayoutProps {
     | "profile";
 }
 
-// "Admin Tester" -> "AT" (photo na ho to yeh dikhta hai)
 const initialsOf = (name: string): string =>
   name
     .trim()
@@ -74,7 +74,6 @@ export default function ReaderLayout({
 }: ReaderLayoutProps) {
   const navigate = useNavigate();
 
-  // Top search bar: user type kare, 400ms ruk kar value pages ko di jati hai
   const [searchText, setSearchText] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -83,7 +82,6 @@ export default function ReaderLayout({
     return () => clearTimeout(t);
   }, [searchText]);
 
-  // Top-right par dikhne wala login user (backend se aata hai)
   const [me, setMe] = useState<{
     name: string;
     email: string;
@@ -110,19 +108,51 @@ export default function ReaderLayout({
           });
           setAvatarTick((t) => t + 1);
         })
-        .catch(() => {
-          // Header ke liye chup rehna theek hai; page apna error khud dikhata hai
-        });
+        .catch(() => {});
     };
 
     loadMe();
 
-    // Profile page update ke baad "profile-updated" event bhejta hai,
-    // taake top-right wala naam foran badal jaye
     window.addEventListener("profile-updated", loadMe);
     return () => {
       cancelled = true;
       window.removeEventListener("profile-updated", loadMe);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!localStorage.getItem("token")) return;
+
+    let active = true;
+
+    async function setupPush() {
+      try {
+        const token = await getDeviceToken();
+        if (!active || !token) return;
+
+        const lastSent = sessionStorage.getItem("storysign_fcm_token");
+        if (lastSent === token) return;
+
+        await registerDeviceToken(token);
+        sessionStorage.setItem("storysign_fcm_token", token);
+      } catch (err) {
+        console.warn("Device token registration skipped:", err);
+      }
+    }
+
+    setupPush();
+
+    const unsubscribe = onForegroundNotification((payload) => {
+      const notifTitle = payload?.notification?.title || "StorySign";
+      const notifBody = payload?.notification?.body || "";
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(notifTitle, { body: notifBody, icon: logo });
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
     };
   }, []);
 
@@ -146,10 +176,8 @@ export default function ReaderLayout({
     FaUserCircle,
   ];
 
-  // NOTE: 5 = Autograph Fee, 6 = Notifications, 8 = Queries, 9 = Settings, 12 = Profile
-  // Paths yahan App.tsx ke routes se bilkul match karte hain
   const navRoutes: (string | null)[] = [
-    "/readers", // pehle "/" tha (Login page), ab Reader Management ka route
+    "/readers",
     "/author-management",
     "/ebooks",
     "/requests",
@@ -227,8 +255,8 @@ export default function ReaderLayout({
     if (path) navigate(path);
   };
 
-  // Logout: token hatao aur login page par bhejo
   const handleLogout = () => {
+    sessionStorage.removeItem("storysign_fcm_token");
     localStorage.removeItem("token");
     navigate("/", { replace: true });
   };
@@ -278,6 +306,7 @@ export default function ReaderLayout({
         c="white"
         style={{ overflow: "hidden", fontFamily: "sans-serif" }}
       >
+        {/* Sidebar */}
         <Box
           w={180}
           py="md"
@@ -356,105 +385,6 @@ export default function ReaderLayout({
             <UnstyledButton onClick={handleLogout}>
               <Group gap={6} wrap="nowrap">
                 <BiLogOut size={18} color={accentCardBg} />
-
-<<<<<<< Updated upstream
-        <Box pt="xs" mt="auto">
-          <UnstyledButton onClick={handleLogout}>
-            <Group gap={6} wrap="nowrap">
-              <BiLogOut size={18} color={accentCardBg} />
-
-              <Text size="xs" fw={600} c={accentCardBg}>
-                Log Out
-              </Text>
-            </Group>
-          </UnstyledButton>
-        </Box>
-      </Box>
-
-      <Box
-        style={{
-          flex: 1,
-          minWidth: 0,
-          backgroundColor: outerBg,
-          padding: "16px 24px 16px 24px",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          boxSizing: "border-box",
-        }}
-      >
-        <Flex align="center" justify="space-between" mb="md">
-          <Text size="22px" fw={600} c={accentCardBg}>
-            {title}
-          </Text>
-
-          <Group gap={28} align="center">
-            <TextInput
-              placeholder="Search"
-              value={searchText}
-              onChange={(e) => setSearchText(e.currentTarget.value)}
-              leftSection={<MdSearch size={18} color="#A0A0A0" />}
-              styles={{
-                input: {
-                  width: "240px",
-                  height: "36px",
-                  backgroundColor: "transparent",
-                  border: "1px solid rgba(255, 255, 255, 0.25)",
-                  borderRadius: "20px",
-                  color: "#FFFFFF",
-                  paddingLeft: "36px",
-                  fontSize: "13px",
-                },
-              }}
-            />
-
-            <UnstyledButton
-              onClick={() => navigate("/profile")}
-              style={{ cursor: "pointer" }}
-            >
-              <Group gap="xs" align="center" style={{ width: 170 }}>
-                {/* photo na ho to naam ke pehle letters dikhte hain */}
-                <Avatar
-                  src={headerAvatarSrc}
-                  size={36}
-                  radius="xl"
-                  styles={{
-                    placeholder: {
-                      backgroundColor: "#FFE8B6",
-                      color: "#6A4335",
-                      fontWeight: 700,
-                    },
-                  }}
-                >
-                  {initialsOf(me.name)}
-                </Avatar>
-
-                <Box style={{ minWidth: 0 }}>
-                  <Text
-                    size="12px"
-                    fw={500}
-                    c="#FFFFFF"
-                    truncate
-                    style={{ lineHeight: 1.2 }}
-                  >
-                    {me.name}
-                  </Text>
-
-                  <Text
-                    size="10px"
-                    c="#8C8C8C"
-                    truncate
-                    style={{ lineHeight: 1.2 }}
-                  >
-                    {me.email}
-                  </Text>
-                </Box>
-              </Group>
-            </UnstyledButton>
-          </Group>
-        </Flex>
-=======
                 <Text size="xs" fw={600} c={accentCardBg}>
                   Log Out
                 </Text>
@@ -462,8 +392,8 @@ export default function ReaderLayout({
             </UnstyledButton>
           </Box>
         </Box>
->>>>>>> Stashed changes
 
+        {/* Main Content Area */}
         <Box
           style={{
             flex: 1,
@@ -502,44 +432,48 @@ export default function ReaderLayout({
                 }}
               />
 
-              <Group gap="xs" align="center" style={{ width: 170 }}>
-                {/* photo na ho to naam ke pehle letters dikhte hain */}
-                <Avatar
-                  src={headerAvatarSrc}
-                  size={36}
-                  radius="xl"
-                  styles={{
-                    placeholder: {
-                      backgroundColor: "#FFE8B6",
-                      color: "#6A4335",
-                      fontWeight: 700,
-                    },
-                  }}
-                >
-                  {initialsOf(me.name)}
-                </Avatar>
-
-                <Box style={{ minWidth: 0 }}>
-                  <Text
-                    size="12px"
-                    fw={500}
-                    c="#FFFFFF"
-                    truncate
-                    style={{ lineHeight: 1.2 }}
+              <UnstyledButton
+                onClick={() => navigate("/profile")}
+                style={{ cursor: "pointer" }}
+              >
+                <Group gap="xs" align="center" style={{ width: 170 }}>
+                  <Avatar
+                    src={headerAvatarSrc}
+                    size={36}
+                    radius="xl"
+                    styles={{
+                      placeholder: {
+                        backgroundColor: "#FFE8B6",
+                        color: "#6A4335",
+                        fontWeight: 700,
+                      },
+                    }}
                   >
-                    {me.name}
-                  </Text>
+                    {initialsOf(me.name)}
+                  </Avatar>
 
-                  <Text
-                    size="10px"
-                    c="#8C8C8C"
-                    truncate
-                    style={{ lineHeight: 1.2 }}
-                  >
-                    {me.email}
-                  </Text>
-                </Box>
-              </Group>
+                  <Box style={{ minWidth: 0 }}>
+                    <Text
+                      size="12px"
+                      fw={500}
+                      c="#FFFFFF"
+                      truncate
+                      style={{ lineHeight: 1.2 }}
+                    >
+                      {me.name}
+                    </Text>
+
+                    <Text
+                      size="10px"
+                      c="#8C8C8C"
+                      truncate
+                      style={{ lineHeight: 1.2 }}
+                    >
+                      {me.email}
+                    </Text>
+                  </Box>
+                </Group>
+              </UnstyledButton>
             </Group>
           </Flex>
 
