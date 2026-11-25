@@ -221,8 +221,6 @@ export default function SubscriptionPlans() {
       const hasActiveFilter = filterVal !== "ALL";
       const hasSearch = Boolean(searchVal.trim());
 
-      // Jab filter ya search active ho to zyada items lekar exact status match karte hain
-      // taake backend case-sensitivity ya empty param response ki wajah se rows miss na hon
       const fetchLimit = hasActiveFilter || hasSearch ? 100 : PAGE_SIZE;
       const fetchPage = hasActiveFilter || hasSearch ? 1 : targetPage;
 
@@ -894,13 +892,18 @@ export default function SubscriptionPlans() {
                         h={30}
                         px={18}
                         radius={6}
-                        color="#81401F"
-                        c="#FFE8B6"
-                        fw={500}
                         disabled={hasActive}
                         loading={busy}
                         onClick={() => handleSubscribe(plan)}
-                        styles={{ root: { fontSize: "12px" } }}
+                        styles={{
+                          root: {
+                            fontSize: "12px",
+                            backgroundColor: hasActive ? "#5C4028" : "#81401F",
+                            color: "#FFE8B6",
+                            opacity: hasActive ? 0.85 : 1,
+                            cursor: hasActive ? "not-allowed" : "pointer",
+                          },
+                        }}
                       >
                         Subscribe
                       </Button>
@@ -1093,12 +1096,12 @@ export default function SubscriptionPlans() {
                         onClick={() => handleSelectFilter(item.value)}
                         style={{
                           color:
-                            statusFilter === item.value ? accent : "#FFFFFF",
+                            statusFilter === item.value ? accent : "#E0E0E0",
                           backgroundColor:
                             statusFilter === item.value
-                              ? "rgba(129, 64, 31, 0.45)"
+                              ? "rgba(129, 64, 31, 0.35)"
                               : "transparent",
-                          fontSize: "11px",
+                          fontSize: "12px",
                         }}
                       >
                         {item.label}
@@ -1111,16 +1114,16 @@ export default function SubscriptionPlans() {
                   onClick={openAddForm}
                   style={{
                     height: "32px",
-                    padding: "0 14px",
+                    padding: "0 16px",
                     backgroundColor: brown,
                     borderRadius: "20px",
                     display: "flex",
                     alignItems: "center",
-                    gap: "5px",
+                    gap: "6px",
                   }}
                 >
                   <MdAdd size={15} color={accent} />
-                  <Text size="11px" c={accent}>
+                  <Text size="11px" fw={600} c={accent}>
                     Add Plan
                   </Text>
                 </UnstyledButton>
@@ -1133,170 +1136,141 @@ export default function SubscriptionPlans() {
               </Text>
             )}
 
-            <Box style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-              {loading && (
-                <Text size="13px" c="#B8B4B0">
-                  Loading...
-                </Text>
-              )}
+            <Box
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: "auto",
+                scrollbarWidth: "none",
+              }}
+            >
+              <Table
+                verticalSpacing="sm"
+                horizontalSpacing="md"
+                style={{ borderCollapse: "collapse" }}
+              >
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th style={thStyle}>Reader / Author</Table.Th>
+                    <Table.Th style={thStyle}>Plan</Table.Th>
+                    <Table.Th style={thStyle}>Status</Table.Th>
+                    <Table.Th style={thStyle}>Billing</Table.Th>
+                    <Table.Th style={thStyle}>Started</Table.Th>
+                    <Table.Th style={thStyle}>Next Bill</Table.Th>
+                    <Table.Th style={thStyle}>Actions</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
 
-              {!loading && !subsError && subscribers.length === 0 && (
-                <Text size="13px" c="#B8B4B0">
-                  No subscribers yet.
-                </Text>
-              )}
+                <Table.Tbody>
+                  {subscribers.map((row) => (
+                    <Table.Tr key={row.id}>
+                      <Table.Td style={tdStyle}>
+                        <Group
+                          gap={10}
+                          wrap="nowrap"
+                          style={{ cursor: "pointer" }}
+                          onClick={() => openProfile(row.userId)}
+                        >
+                          <UserAvatar url={row.avatar} name={row.name} />
+                          <Text size="12px" c="#FFFFFF" fw={500}>
+                            {row.name}
+                          </Text>
+                        </Group>
+                      </Table.Td>
 
-              {subscribers.length > 0 && (
-                <Table
-                  horizontalSpacing={0}
-                  verticalSpacing={8}
-                  style={{
-                    width: "100%",
-                    tableLayout: "fixed",
-                    color: "#CCCCCC",
-                  }}
-                >
-                  <Table.Thead>
-                    <Table.Tr style={{ borderBottom: "none" }}>
-                      <Table.Th style={{ ...thStyle, width: "20%" }}>
-                        Author Detail
-                      </Table.Th>
-                      <Table.Th style={{ ...thStyle, width: "13%" }}>
-                        Plan
-                      </Table.Th>
-                      <Table.Th style={{ ...thStyle, width: "14%" }}>
-                        Billing
-                      </Table.Th>
-                      <Table.Th style={{ ...thStyle, width: "15%" }}>
-                        Started
-                      </Table.Th>
-                      <Table.Th style={{ ...thStyle, width: "15%" }}>
-                        Next Bill
-                      </Table.Th>
-                      <Table.Th style={{ ...thStyle, width: "23%" }}>
-                        Action
-                      </Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
+                      <Table.Td style={tdStyle}>
+                        <Box
+                          style={{
+                            display: "inline-block",
+                            borderRadius: "6px",
+                            padding: "4px 10px",
+                            fontSize: "10px",
+                            fontWeight: 500,
+                            ...badgeStyle(row.plan),
+                          }}
+                        >
+                          {row.plan}
+                        </Box>
+                      </Table.Td>
 
-                  <Table.Tbody>
-                    {subscribers.map((subscriber) => (
-                      <Table.Tr
-                        key={subscriber.id}
-                        style={{ borderBottom: "none" }}
-                      >
-                        <Table.Td py={10} style={tdStyle}>
-                          <Group gap={8} wrap="nowrap">
-                            <UserAvatar
-                              url={subscriber.avatar}
-                              name={subscriber.name}
-                              size={32}
-                            />
+                      <Table.Td style={tdStyle}>
+                        <Box
+                          style={{
+                            display: "inline-block",
+                            borderRadius: "6px",
+                            padding: "4px 10px",
+                            fontSize: "10px",
+                            fontWeight: 500,
+                            ...statusBadge(row.status),
+                          }}
+                        >
+                          {capitalize(row.status)}
+                        </Box>
+                      </Table.Td>
 
-                            <Text
-                              size="12px"
-                              c="#FFFFFF"
-                              fw={500}
-                              style={{ lineHeight: 1.25 }}
+                      <Table.Td style={tdStyle}>
+                        <Text size="12px" c="#E0E0E0">
+                          {row.billing}
+                        </Text>
+                      </Table.Td>
+
+                      <Table.Td style={tdStyle}>
+                        <Text size="12px" c="#E0E0E0">
+                          {row.started}
+                        </Text>
+                      </Table.Td>
+
+                      <Table.Td style={tdStyle}>
+                        <Text size="12px" c="#E0E0E0">
+                          {row.nextBill}
+                        </Text>
+                      </Table.Td>
+
+                      <Table.Td style={tdStyle}>
+                        <Group gap={8} wrap="nowrap">
+                          {row.status === "active" && (
+                            <Button
+                              size="compact-xs"
+                              radius={6}
+                              color="#2B2B2B"
+                              c="#FF6B6B"
+                              onClick={() => handleCancelSubscription(row)}
                             >
-                              {subscriber.name}
-                            </Text>
-                          </Group>
-                        </Table.Td>
+                              Cancel
+                            </Button>
+                          )}
 
-                        <Table.Td py={10} style={tdStyle}>
-                          <Box
-                            style={{
-                              display: "inline-block",
-                              borderRadius: "6px",
-                              padding: "4px 10px",
-                              fontSize: "10px",
-                              fontWeight: 500,
-                              lineHeight: 1.1,
-                              ...badgeStyle(subscriber.plan),
+                          <ActionIcon
+                            variant="transparent"
+                            radius="xl"
+                            size={24}
+                            aria-label="Delete subscription"
+                            onClick={() => handleDeleteSubscription(row)}
+                            styles={{
+                              root: {
+                                border: "1px solid rgba(255,232,182,0.5)",
+                                color: accent,
+                              },
                             }}
                           >
-                            {subscriber.plan}
-                          </Box>
+                            <FaTrashAlt size={10} />
+                          </ActionIcon>
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
 
-                          {subscriber.status !== "active" && (
-                            <Text size="9px" c="#FF6B6B" mt={4}>
-                              {capitalize(subscriber.status) || "Inactive"}
-                            </Text>
-                          )}
-                        </Table.Td>
-
-                        <Table.Td py={10} style={tdStyle}>
-                          <Text size="14px" c={accent} fw={400}>
-                            {subscriber.billing}
-                          </Text>
-                        </Table.Td>
-
-                        <Table.Td py={10} style={tdStyle}>
-                          <Text size="10px" c="#E0E0E0" fw={500}>
-                            {subscriber.started}
-                          </Text>
-                        </Table.Td>
-
-                        <Table.Td py={10} style={tdStyle}>
-                          <Text size="10px" c="#E0E0E0" fw={500}>
-                            {subscriber.nextBill}
-                          </Text>
-                        </Table.Td>
-
-                        <Table.Td py={10} style={tdStyle}>
-                          <Group gap={12} wrap="nowrap">
-                            <UnstyledButton
-                              onClick={() => openProfile(subscriber.userId)}
-                            >
-                              <Text
-                                size="10px"
-                                c={accent}
-                                fw={400}
-                                td="underline"
-                              >
-                                View Profile
-                              </Text>
-                            </UnstyledButton>
-
-                            {subscriber.status === "active" && (
-                              <UnstyledButton
-                                onClick={() =>
-                                  handleCancelSubscription(subscriber)
-                                }
-                              >
-                                <Text
-                                  size="10px"
-                                  c="#E99A70"
-                                  fw={400}
-                                  td="underline"
-                                >
-                                  Cancel
-                                </Text>
-                              </UnstyledButton>
-                            )}
-
-                            <UnstyledButton
-                              onClick={() =>
-                                handleDeleteSubscription(subscriber)
-                              }
-                            >
-                              <Text
-                                size="10px"
-                                c="#FF6B6B"
-                                fw={400}
-                                td="underline"
-                              >
-                                Delete
-                              </Text>
-                            </UnstyledButton>
-                          </Group>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              )}
+                  {!loading && subscribers.length === 0 && !subsError && (
+                    <Table.Tr>
+                      <Table.Td colSpan={7}>
+                        <Text ta="center" c="#B8B4B0" size="sm" py="md">
+                          No subscribers found.
+                        </Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
+                </Table.Tbody>
+              </Table>
             </Box>
           </Box>
 
@@ -1308,36 +1282,33 @@ export default function SubscriptionPlans() {
         <Box
           style={{
             width: "100%",
-            minHeight: "340px",
             backgroundColor: dark,
             borderRadius: "20px",
-            padding: "22px 20px 26px 20px",
+            padding: "22px 24px 26px",
             boxSizing: "border-box",
           }}
         >
-          <Text size="20px" fw={700} c={accent} mb={14}>
-            {isEditing ? "Edit Plan" : "Add Plan"}
+          <Text size="20px" fw={700} c={accent} mb={16}>
+            {isEditing ? "Edit Subscription Plan" : "Add Subscription Plan"}
           </Text>
 
-          <Flex gap={16} align="flex-start" mb={14}>
-            <Box style={{ flex: 1, minWidth: 0 }}>
-              <Text size="16px" c={accent} mb={10}>
+          <SimpleGrid cols={3} spacing={14} mb={14}>
+            <Box>
+              <Text size="12px" c={accent} mb={6}>
                 Plan Name
               </Text>
-
               <TextInput
-                placeholder="Starter"
+                placeholder="Pro plan"
                 value={planName}
                 onChange={(e) => setPlanName(e.currentTarget.value)}
                 styles={inputStyles}
               />
             </Box>
 
-            <Box style={{ flex: 1, minWidth: 0 }}>
-              <Text size="16px" c={accent} mb={10}>
-                Plan Type
+            <Box>
+              <Text size="12px" c={accent} mb={6}>
+                Billing Cycle
               </Text>
-
               <Select
                 data={["Monthly", "Yearly"]}
                 value={planType}
@@ -1347,82 +1318,76 @@ export default function SubscriptionPlans() {
               />
             </Box>
 
-            <Box style={{ flex: 1, minWidth: 0 }}>
-              <Text size="16px" c={accent} mb={10}>
-                Plan Charges
+            <Box>
+              <Text size="12px" c={accent} mb={6}>
+                Charges ($)
               </Text>
-
               <TextInput
-                placeholder="$29"
+                placeholder="29"
                 value={planCharges}
                 onChange={(e) => setPlanCharges(e.currentTarget.value)}
                 styles={inputStyles}
               />
             </Box>
-          </Flex>
+          </SimpleGrid>
 
-          <Text size="16px" c={accent} mb={10}>
+          <Text size="12px" c={accent} mb={8}>
             Features
           </Text>
 
-          <Group align="flex-start" gap={16} wrap="nowrap">
-            <Stack gap={10} style={{ flex: 1, minWidth: 0 }}>
-              {features.map((feature, index) => (
-                <TextInput
-                  key={index}
-                  value={feature}
-                  onChange={(e) =>
-                    handleFeatureChange(index, e.currentTarget.value)
-                  }
-                  styles={inputStyles}
-                />
-              ))}
-            </Stack>
+          <Stack gap={10}>
+            {features.map((feat, idx) => (
+              <TextInput
+                key={idx}
+                placeholder={`Feature ${idx + 1}`}
+                value={feat}
+                onChange={(e) =>
+                  handleFeatureChange(idx, e.currentTarget.value)
+                }
+                styles={inputStyles}
+              />
+            ))}
+          </Stack>
 
-            <Button
-              w={100}
-              h={34}
-              radius={6}
-              color="#FFE8B6"
-              c="#81401F"
-              fw={500}
-              onClick={handleAddMore}
-              styles={{ root: { fontSize: "13px" } }}
-            >
-              Add More
-            </Button>
-          </Group>
+          <Button
+            mt={12}
+            size="compact-sm"
+            radius={6}
+            variant="outline"
+            color="#FFE8B6"
+            onClick={handleAddMore}
+          >
+            + Add Feature
+          </Button>
 
           {formError && (
-            <Text c="red.4" size="xs" mt={14}>
+            <Text size="12px" c="#FF6B6B" mt={12}>
               {formError}
             </Text>
           )}
 
-          <Group gap={16} mt={formError ? 30 : 56} align="center">
+          <Group gap={16} mt={24}>
             <Button
-              w={160}
-              h={34}
+              w={170}
+              h={36}
               radius={6}
               color="#81401F"
               c="#FFE8B6"
               fw={500}
               onClick={handleSubmit}
               loading={saving}
-              styles={{ root: { fontSize: "13px" } }}
             >
               {isEditing ? "Update Plan" : "Add Plan"}
             </Button>
 
             <Button
-              w={160}
-              h={34}
+              w={150}
+              h={36}
               radius={6}
               color="#2B2B2B"
               c="#E0E0E0"
               fw={400}
               onClick={handleCancel}
-              styles={{ root: { fontSize: "13px" } }}
             >
               Cancel
             </Button>
@@ -1430,7 +1395,7 @@ export default function SubscriptionPlans() {
         </Box>
       )}
 
-      {isAdmin && showSuccess && (
+      {showSuccess && (
         <Box
           style={{
             position: "fixed",
@@ -1444,8 +1409,8 @@ export default function SubscriptionPlans() {
         >
           <Overlay
             color="#000000"
-            backgroundOpacity={0.5}
-            blur={3}
+            backgroundOpacity={0.55}
+            blur={2}
             zIndex={0}
           />
 
@@ -1453,13 +1418,13 @@ export default function SubscriptionPlans() {
             style={{
               position: "relative",
               zIndex: 1,
-              width: "350px",
+              width: "400px",
               maxWidth: "100%",
-              minHeight: "255px",
-              padding: "30px 28px",
+              minHeight: "230px",
+              padding: "32px 28px",
               boxSizing: "border-box",
               backgroundColor: "#FFEBBC",
-              borderRadius: "14px",
+              borderRadius: "16px",
               boxShadow: "0 12px 40px rgba(0,0,0,0.4)",
               display: "flex",
               flexDirection: "column",
@@ -1468,23 +1433,15 @@ export default function SubscriptionPlans() {
               textAlign: "center",
             }}
           >
-            <HiOutlineBadgeCheck size={42} color="#81401F" />
+            <HiOutlineBadgeCheck size={46} color={brown} />
 
-            <Text
-              size="15px"
-              fw={500}
-              c="#3A2A20"
-              mb={26}
-              style={{ lineHeight: 1.5 }}
-            >
-              Subscription plan has been
-              <br />
-              {successText} successfully
+            <Text size="16px" fw={500} c="#3A2A20" mt={10} mb={24}>
+              Subscription plan has been {successText} successfully
             </Text>
 
             <Button
-              w={100}
-              h={32}
+              w={110}
+              h={34}
               radius={6}
               color="#81401F"
               c="#FFEBBC"

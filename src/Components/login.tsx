@@ -43,6 +43,17 @@ function Login() {
 
   return (
     <AuthLayout>
+      <style>{`
+        .login-pw-toggle {
+          color: #ffebbc !important;
+          background-color: transparent !important;
+        }
+        .login-pw-toggle:hover {
+          color: #ffffff !important;
+          background-color: rgba(255, 235, 188, 0.12) !important;
+        }
+      `}</style>
+
       <Paper
         w={380}
         h={430}
@@ -82,6 +93,7 @@ function Login() {
             value={password}
             onChange={(event) => setPassword(event.currentTarget.value)}
             error={submitted && !password.trim()}
+            classNames={{ visibilityToggle: "login-pw-toggle" }}
             styles={{
               label: { color: "#ffebbc", marginBottom: "10px" },
               innerInput: { color: "#ffffff" },
@@ -89,6 +101,9 @@ function Login() {
                 backgroundColor: "rgba(255, 255, 255, 0.05)",
                 borderColor: "rgba(255, 255, 255, 0.2)",
                 borderRadius: "6px",
+              },
+              section: {
+                color: "#ffebbc",
               },
             }}
           />

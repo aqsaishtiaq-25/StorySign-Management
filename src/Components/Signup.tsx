@@ -24,6 +24,9 @@ const inputStyles = {
     borderRadius: "6px",
   },
   innerInput: { color: "#ffffff" },
+  section: {
+    color: "#ffebbc",
+  },
 };
 
 function Signup() {
@@ -76,6 +79,17 @@ function Signup() {
 
   return (
     <AuthLayout>
+      <style>{`
+        .signup-pw-toggle {
+          color: #ffebbc !important;
+          background-color: transparent !important;
+        }
+        .signup-pw-toggle:hover {
+          color: #ffffff !important;
+          background-color: rgba(255, 235, 188, 0.12) !important;
+        }
+      `}</style>
+
       <Paper
         w={380}
         p="xl"
@@ -127,6 +141,7 @@ function Signup() {
             value={password}
             onChange={(e) => setPassword(e.currentTarget.value)}
             error={submitted && passwordTooShort}
+            classNames={{ visibilityToggle: "signup-pw-toggle" }}
             styles={inputStyles}
           />
 
@@ -136,6 +151,7 @@ function Signup() {
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.currentTarget.value)}
             error={submitted && passwordMismatch}
+            classNames={{ visibilityToggle: "signup-pw-toggle" }}
             styles={inputStyles}
           />
 

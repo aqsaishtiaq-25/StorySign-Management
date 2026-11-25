@@ -20,6 +20,9 @@ const inputStyles = {
     borderColor: "rgba(255, 255, 255, 0.2)",
     borderRadius: "6px",
   },
+  section: {
+    color: "#ffebbc",
+  },
 };
 
 function ResetPassword() {
@@ -60,6 +63,17 @@ function ResetPassword() {
 
   return (
     <AuthLayout>
+      <style>{`
+        .reset-pw-toggle {
+          color: #ffebbc !important;
+          background-color: transparent !important;
+        }
+        .reset-pw-toggle:hover {
+          color: #ffffff !important;
+          background-color: rgba(255, 235, 188, 0.12) !important;
+        }
+      `}</style>
+
       <Paper
         w={380}
         h={430}
@@ -82,6 +96,7 @@ function ResetPassword() {
             value={password}
             onChange={(e) => setPassword(e.currentTarget.value)}
             error={submitted && tooShort}
+            classNames={{ visibilityToggle: "reset-pw-toggle" }}
             styles={inputStyles}
           />
 
@@ -91,6 +106,7 @@ function ResetPassword() {
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.currentTarget.value)}
             error={submitted && mismatch}
+            classNames={{ visibilityToggle: "reset-pw-toggle" }}
             styles={inputStyles}
           />
 
