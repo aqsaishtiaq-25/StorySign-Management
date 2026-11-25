@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -11,6 +11,7 @@ import {
   SimpleGrid,
   Table,
   ActionIcon,
+  Menu,
 } from "@mantine/core";
 
 import { MdSearch } from "react-icons/md";
@@ -36,6 +37,10 @@ import {
   isSignedRequest,
 } from "../api";
 import type { ApiUser, ApiPlan, ApiSubscription } from "../api";
+
+type AuthorStatusFilter = "ALL" | "ACTIVE" | "INACTIVE" | "SUSPENDED";
+
+const PAGE_SIZE = 4;
 
 // List "data" ke andar ho sakti hai, ya seedha array ho
 const toList = (res: any): any[] | null =>
@@ -88,6 +93,7 @@ export default function AuthorManagement() {
 
   // ---------- Backend data ----------
   const [users, setUsers] = useState<ApiUser[]>([]);
+  const [totalPages, setTotalPages] = useState<number>(1);
   const [plans, setPlans] = useState<ApiPlan[]>([]);
   const [subs, setSubs] = useState<ApiSubscription[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
@@ -95,29 +101,32 @@ export default function AuthorManagement() {
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [planWarning, setPlanWarning] = useState<string>("");
   const [countWarning, setCountWarning] = useState<string>("");
-  const [search, setSearch] = useState<string>("");
 
+  // ---------- Search + Filter + Pagination states ----------
+  const [search, setSearch] = useState<string>("");
+  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<AuthorStatusFilter>("ALL");
+  const [page, setPage] = useState<number>(1);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Plans, subscriptions aur requests ek baar load hote hain
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      // Sab ek saath mangwate hain. Ek fail ho to baaki phir bhi chalte hain.
-      const [usersRes, plansRes, subsRes, reqRes] = await Promise.allSettled([
-        getUsers(1, 100),
+      const [plansRes, subsRes, reqRes] = await Promise.allSettled([
         getPlans(),
         getSubscriptions(),
         getAllAutographRequests(),
       ]);
       if (cancelled) return;
-
-      if (usersRes.status === "fulfilled") {
-        const list = (toList(usersRes.value) ?? []) as ApiUser[];
-        setUsers(list.filter((u) => u.role === "AUTHOR"));
-      } else {
-        setErrorMsg(
-          `Could not load authors: ${(usersRes.reason as Error).message}`,
-        );
-      }
 
       if (plansRes.status === "fulfilled") {
         setPlans((toList(plansRes.value) ?? []) as ApiPlan[]);
@@ -130,14 +139,12 @@ export default function AuthorManagement() {
       }
 
       if (reqRes.status === "fulfilled") {
-        setRequests(reqRes.value ?? []);
+        setRequests(toList(reqRes.value) ?? (reqRes.value as any[]) ?? []);
       } else {
         setCountWarning(
           `Could not load request counts: ${(reqRes.reason as Error).message}`,
         );
       }
-
-      setLoading(false);
     })();
 
     return () => {
@@ -145,36 +152,104 @@ export default function AuthorManagement() {
     };
   }, []);
 
-  // ---------- Author ka plan: userId -> plan ka naam ----------
-  const planById = new Map(plans.map((p) => [p.id, p]));
-  const planNameByUser = new Map<string, string>();
+  // Authors backend se page, debouncedSearch aur statusFilter ke mutabiq aate hain
+  useEffect(() => {
+    let cancelled = false;
 
-  subs.forEach((s) => {
-    if ((s.status ?? "").toLowerCase() !== "active") return;
-    const p: any = planById.get(s.planId) ?? (s as any).plan;
-    planNameByUser.set(s.userId, p?.name ?? "Unknown plan");
-  });
+    (async () => {
+      setLoading(true);
+      setErrorMsg("");
+
+      try {
+        const res = await getUsers({
+          page,
+          limit: PAGE_SIZE,
+          role: "AUTHOR",
+          search: debouncedSearch,
+          ...(statusFilter === "ACTIVE"
+            ? { isActive: true, isSuspended: false }
+            : {}),
+          ...(statusFilter === "INACTIVE"
+            ? { isActive: false, isSuspended: false }
+            : {}),
+          ...(statusFilter === "SUSPENDED" ? { isSuspended: true } : {}),
+        });
+        if (cancelled) return;
+
+        const list = (toList(res) ?? []) as ApiUser[];
+        setUsers(list.filter((u) => !u.role || u.role === "AUTHOR"));
+
+        const apiTotalPages =
+          res?.pagination?.totalPages ??
+          res?.meta?.totalPages ??
+          res?.totalPages;
+
+        if (typeof apiTotalPages === "number" && apiTotalPages > 0) {
+          setTotalPages(apiTotalPages);
+        } else {
+          setTotalPages(
+            Math.max(1, page + (list.length === PAGE_SIZE ? 1 : 0)),
+          );
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setUsers([]);
+        setErrorMsg(`Could not load authors: ${(err as Error).message}`);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [page, debouncedSearch, statusFilter]);
+
+  // ---------- Author ka plan: userId -> plan ka naam ----------
+  const planNameByUser = useMemo(() => {
+    const planById = new Map(plans.map((p) => [p.id, p]));
+    const map = new Map<string, string>();
+
+    subs.forEach((s) => {
+      if ((s.status ?? "").toLowerCase() !== "active") return;
+      const p: any = planById.get(s.planId) ?? (s as any).plan;
+      map.set(s.userId, p?.name ?? "Unknown plan");
+    });
+
+    return map;
+  }, [plans, subs]);
 
   // ---------- Author ki requests ki ginti ----------
-  const pendingByAuthor = new Map<string, number>();
-  const signedByAuthor = new Map<string, number>();
+  const { pendingByAuthor, signedByAuthor } = useMemo(() => {
+    const pending = new Map<string, number>();
+    const signed = new Map<string, number>();
 
-  requests.forEach((r) => {
-    const authorId = r.authorId ?? r.author?.id;
-    if (!authorId) return;
+    requests.forEach((r) => {
+      const authorId = r.authorId ?? r.author?.id;
+      if (!authorId) return;
 
-    if (isPendingRequest(r)) {
-      pendingByAuthor.set(authorId, (pendingByAuthor.get(authorId) ?? 0) + 1);
-    }
-    if (isSignedRequest(r)) {
-      signedByAuthor.set(authorId, (signedByAuthor.get(authorId) ?? 0) + 1);
-    }
-  });
+      if (isPendingRequest(r)) {
+        pending.set(authorId, (pending.get(authorId) ?? 0) + 1);
+      }
+      if (isSignedRequest(r)) {
+        signed.set(authorId, (signed.get(authorId) ?? 0) + 1);
+      }
+    });
 
-  const activeCount = users.filter((u) => u.isActive).length;
-  const inactiveCount = users.length - activeCount;
+    return { pendingByAuthor: pending, signedByAuthor: signed };
+  }, [requests]);
 
-  // Suspended ka backend mein koi field nahi hai, isliye "-"
+  const activeCount = users.filter(
+    (u) => u.isActive && !(u as any).isSuspended,
+  ).length;
+  const suspendedCount = users.filter((u) =>
+    Boolean((u as any).isSuspended),
+  ).length;
+  const inactiveCount = Math.max(
+    0,
+    users.length - activeCount - suspendedCount,
+  );
+
   const statCards = [
     { title: "Total Authors", value: String(users.length), icon: FiUsers },
     { title: "Active Authors", value: String(activeCount), icon: FiUserCheck },
@@ -183,42 +258,49 @@ export default function AuthorManagement() {
       value: String(inactiveCount),
       icon: FiUserMinus,
     },
-    { title: "Suspended Authors", value: "-", icon: FiUserX },
+    {
+      title: "Suspended Authors",
+      value: String(suspendedCount),
+      icon: FiUserX,
+    },
   ];
 
-  const authors = users
-    .map((u) => ({
+  const authors = users.map((u: any) => {
+    const isSuspended = Boolean(u.isSuspended);
+    const statusLabel = isSuspended
+      ? "Suspended"
+      : u.isActive
+        ? "Active"
+        : "Inactive";
+
+    return {
       id: u.id,
-      shortId: u.id.slice(0, 8),
-      name: `${u.firstName} ${u.lastName}`.trim(),
-      email: u.email,
+      shortId: String(u.id ?? "").slice(0, 8),
+      name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "Unknown",
+      email: u.email ?? "",
       avatar: u.avatarUrl ?? "",
       plan: planWarning ? "-" : (planNameByUser.get(u.id) ?? "No Plan"),
       signedBook: countWarning ? "-" : String(signedByAuthor.get(u.id) ?? 0),
       pendingRequest: countWarning
         ? "-"
         : String(pendingByAuthor.get(u.id) ?? 0),
-      status: u.isActive ? "Active" : "Inactive",
-    }))
-    .filter((a) => {
-      const q = search.trim().toLowerCase();
-      if (!q) return true;
-      return (
-        a.name.toLowerCase().includes(q) ||
-        a.email.toLowerCase().includes(q) ||
-        a.plan.toLowerCase().includes(q)
-      );
-    });
+      status: statusLabel,
+    };
+  });
 
-  // ---------- Pagination ----------
-  const PAGE_SIZE = 5;
-  const [page, setPage] = useState(1);
+  const handleSelectFilter = (nextFilter: AuthorStatusFilter) => {
+    setStatusFilter(nextFilter);
+    setPage(1);
+  };
 
-  const totalPages = Math.max(1, Math.ceil(authors.length / PAGE_SIZE));
-  const currentPage = Math.max(1, Math.min(page, totalPages));
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const currentAuthors = authors.slice(start, start + PAGE_SIZE);
-  // --------------------------------
+  const filterLabel =
+    statusFilter === "ALL"
+      ? "Filter"
+      : statusFilter === "ACTIVE"
+        ? "Active"
+        : statusFilter === "INACTIVE"
+          ? "Inactive"
+          : "Suspended";
 
   const openDetail = (id: string) => {
     sessionStorage.setItem("selectedAuthorId", id);
@@ -324,10 +406,7 @@ export default function AuthorManagement() {
             <TextInput
               placeholder="Search"
               value={search}
-              onChange={(e) => {
-                setSearch(e.currentTarget.value);
-                setPage(1);
-              }}
+              onChange={(e) => setSearch(e.currentTarget.value)}
               leftSection={<MdSearch size={17} color="#D0D0D0" />}
               styles={{
                 input: {
@@ -343,25 +422,62 @@ export default function AuthorManagement() {
               }}
             />
 
-            <UnstyledButton>
-              <Box
-                px={16}
+            <Menu shadow="md" width={160} position="bottom-end">
+              <Menu.Target>
+                <UnstyledButton>
+                  <Box
+                    px={16}
+                    style={{
+                      height: 36,
+                      borderRadius: "20px",
+                      backgroundColor:
+                        statusFilter === "ALL" ? "#383838" : "#91451F",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 7,
+                    }}
+                  >
+                    <FiFilter size={15} color="#E0E0E0" />
+
+                    <Text size="12px" c="#E0E0E0" fw={500}>
+                      {filterLabel}
+                    </Text>
+                  </Box>
+                </UnstyledButton>
+              </Menu.Target>
+
+              <Menu.Dropdown
                 style={{
-                  height: 36,
-                  borderRadius: "20px",
-                  backgroundColor: "#383838",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
+                  backgroundColor: "#2B2828",
+                  border: "1px solid #45413D",
                 }}
               >
-                <FiFilter size={15} color="#E0E0E0" />
-
-                <Text size="12px" c="#E0E0E0">
-                  Filter
-                </Text>
-              </Box>
-            </UnstyledButton>
+                {(
+                  [
+                    { value: "ALL", label: "All" },
+                    { value: "ACTIVE", label: "Active" },
+                    { value: "INACTIVE", label: "Inactive" },
+                    { value: "SUSPENDED", label: "Suspended" },
+                  ] as const
+                ).map((item) => (
+                  <Menu.Item
+                    key={item.value}
+                    onClick={() => handleSelectFilter(item.value)}
+                    style={{
+                      color:
+                        statusFilter === item.value ? "#FFE8B6" : "#FFFFFF",
+                      backgroundColor:
+                        statusFilter === item.value
+                          ? "rgba(145, 69, 31, 0.45)"
+                          : "transparent",
+                      fontSize: "12px",
+                    }}
+                  >
+                    {item.label}
+                  </Menu.Item>
+                ))}
+              </Menu.Dropdown>
+            </Menu>
           </Group>
         </Flex>
 
@@ -437,7 +553,7 @@ export default function AuthorManagement() {
               </Table.Thead>
 
               <Table.Tbody>
-                {currentAuthors.map((author) => (
+                {authors.map((author) => (
                   <Table.Tr key={author.id} style={{ borderBottom: "none" }}>
                     <Table.Td c="#E0E0E0" py={12} style={tdStyle}>
                       {author.shortId}
@@ -553,11 +669,7 @@ export default function AuthorManagement() {
         </Box>
       </Box>
 
-      <Pagination
-        page={currentPage}
-        totalPages={totalPages}
-        onChange={setPage}
-      />
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
     </ReaderLayout>
   );
 }

@@ -12,6 +12,7 @@ import {
   UnstyledButton,
   ActionIcon,
   Loader,
+  Menu,
 } from "@mantine/core";
 
 import { MdSearch } from "react-icons/md";
@@ -39,6 +40,7 @@ import {
 } from "../api";
 
 type BookStatus = "Signed" | "Unsigned" | "Rejected";
+type EbookFilterValue = "ALL" | "SIGNED" | "UNSIGNED";
 
 interface Book {
   id: string;
@@ -49,6 +51,12 @@ interface Book {
   cover: string;
   avatar: string;
 }
+
+const EBOOK_FILTER_ITEMS: { value: EbookFilterValue; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "SIGNED", label: "Signed" },
+  { value: "UNSIGNED", label: "Unsigned" },
+];
 
 function formatDate(value: unknown) {
   if (!value) return "-";
@@ -133,14 +141,23 @@ export default function EbookManagement() {
   const [error, setError] = useState("");
 
   const [tableSearch, setTableSearch] = useState("");
-  const [signedOnly, setSignedOnly] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<EbookFilterValue>("ALL");
   const [page, setPage] = useState(1);
 
-  const pageSize = 5;
+  const pageSize = 4;
 
   const innerContainerBg = "#211E1E";
   const accentCardBg = "#FFE8B6";
   const numberColor = "#2A1005";
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(tableSearch);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [tableSearch]);
 
   // Stats: sirf ek baar. Fail ho to table ko na roke (sirf admin ke liye hain)
   useEffect(() => {
@@ -149,7 +166,7 @@ export default function EbookManagement() {
       .catch(() => setStats(null));
   }, []);
 
-  // Ebooks: har page change par
+  // Ebooks: page, debouncedSearch aur statusFilter ke mutabiq backend se
   useEffect(() => {
     let cancelled = false;
 
@@ -166,10 +183,17 @@ export default function EbookManagement() {
         setLoading(true);
         setError("");
 
-        const res = await getEbooks(page, pageSize);
-        const items: any[] = res.data ?? [];
+        const res = await getEbooks({
+          page,
+          limit: pageSize,
+          search: debouncedSearch,
+          ...(statusFilter === "SIGNED" ? { isSigned: true } : {}),
+          ...(statusFilter === "UNSIGNED" ? { isSigned: false } : {}),
+        });
+        const items: any[] = Array.isArray(res)
+          ? res
+          : (res?.data ?? res?.items ?? res?.ebooks ?? []);
 
-        // Apni profile, saare users (unke avatarUrl ke sath), aur autograph requests
         const meRes: any = await safe(() => getMyProfile());
         const me = meRes?.data ?? meRes?.user ?? meRes;
         const usersRes: any = await safe(() => getUsers(1, 100));
@@ -196,7 +220,6 @@ export default function EbookManagement() {
           if (rd && rid && !readers[rid]) readers[rid] = rd;
         });
 
-        // Jo readers abhi tak nahi mile, un ki details alag se
         const missing = [
           ...new Set(
             items.map((e) => e.readerId).filter((x) => x && !readers[x]),
@@ -215,7 +238,18 @@ export default function EbookManagement() {
 
         if (!cancelled) {
           setBooks(items.map((e) => toBook(e, readers)));
-          setTotalPages(res.pagination?.totalPages ?? 1);
+
+          const apiTotalPages =
+            res?.pagination?.totalPages ??
+            res?.meta?.totalPages ??
+            res?.totalPages;
+          if (typeof apiTotalPages === "number" && apiTotalPages > 0) {
+            setTotalPages(apiTotalPages);
+          } else {
+            setTotalPages(
+              Math.max(1, page + (items.length === pageSize ? 1 : 0)),
+            );
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -230,7 +264,7 @@ export default function EbookManagement() {
     return () => {
       cancelled = true;
     };
-  }, [page]);
+  }, [page, debouncedSearch, statusFilter]);
 
   const statCards = [
     { title: "Total Books", value: stats?.total ?? 0, icon: FiFileText },
@@ -239,18 +273,14 @@ export default function EbookManagement() {
     { title: "Rejected Books", value: stats?.rejected ?? 0, icon: FiSlash },
   ];
 
-  const query = tableSearch.trim().toLowerCase();
+  const handleSelectFilter = (next: EbookFilterValue) => {
+    setStatusFilter(next);
+    setPage(1);
+  };
 
-  // Search/Filter abhi sirf current page ki ebooks par chalte hain
-  const visibleBooks = books.filter((book) => {
-    const matchesSearch =
-      !query ||
-      `${book.title} ${book.author} ${book.date} ${book.status}`
-        .toLowerCase()
-        .includes(query);
-
-    return matchesSearch && (!signedOnly || book.status === "Signed");
-  });
+  const activeFilterLabel =
+    EBOOK_FILTER_ITEMS.find((item) => item.value === statusFilter)?.label ??
+    "Filter";
 
   const getStatusStyle = (status: BookStatus) => {
     if (status === "Signed") {
@@ -302,7 +332,7 @@ export default function EbookManagement() {
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
-          gap: "20px",
+          gap: "16px",
         }}
       >
         <SimpleGrid cols={4} spacing="md" style={{ flexShrink: 0 }}>
@@ -355,34 +385,61 @@ export default function EbookManagement() {
                   border: "none",
                   borderRadius: "20px",
                   color: "#FFFFFF",
-
                   paddingLeft: "36px",
                   fontSize: "12px",
                 },
               }}
             />
 
-            <UnstyledButton
-              onClick={() => setSignedOnly((current) => !current)}
-            >
-              <Box
-                px={16}
+            <Menu shadow="md" width={150} position="bottom-end">
+              <Menu.Target>
+                <UnstyledButton>
+                  <Box
+                    px={16}
+                    style={{
+                      height: 36,
+                      borderRadius: "20px",
+                      backgroundColor:
+                        statusFilter === "ALL" ? "#383838" : "#91451F",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 7,
+                    }}
+                  >
+                    <FiFilter size={15} color="#E0E0E0" />
+
+                    <Text size="12px" c="#E0E0E0" fw={500}>
+                      {statusFilter === "ALL" ? "Filter" : activeFilterLabel}
+                    </Text>
+                  </Box>
+                </UnstyledButton>
+              </Menu.Target>
+
+              <Menu.Dropdown
                 style={{
-                  height: 36,
-                  borderRadius: "20px",
-                  backgroundColor: signedOnly ? "#68452F" : "#383838",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
+                  backgroundColor: "#2B2828",
+                  border: "1px solid #45413D",
                 }}
               >
-                <FiFilter size={15} color="#E0E0E0" />
-
-                <Text size="12px" c="#E0E0E0">
-                  Filter
-                </Text>
-              </Box>
-            </UnstyledButton>
+                {EBOOK_FILTER_ITEMS.map((item) => (
+                  <Menu.Item
+                    key={item.value}
+                    onClick={() => handleSelectFilter(item.value)}
+                    style={{
+                      color:
+                        statusFilter === item.value ? accentCardBg : "#FFFFFF",
+                      backgroundColor:
+                        statusFilter === item.value
+                          ? "rgba(145, 69, 31, 0.45)"
+                          : "transparent",
+                      fontSize: "12px",
+                    }}
+                  >
+                    {item.label}
+                  </Menu.Item>
+                ))}
+              </Menu.Dropdown>
+            </Menu>
           </Group>
         </Flex>
 
@@ -434,17 +491,17 @@ export default function EbookManagement() {
               </Table.Thead>
 
               <Table.Tbody>
-                {visibleBooks.map((book) => {
+                {books.map((book) => {
                   const [firstName, ...rest] = book.author.split(" ");
 
                   return (
                     <Table.Tr key={book.id} style={{ borderBottom: "none" }}>
-                      <Table.Td py={12} style={tdStyle}>
+                      <Table.Td py={10} style={tdStyle}>
                         <Group gap={10} wrap="nowrap">
                           <Box
                             style={{
-                              width: 40,
-                              height: 40,
+                              width: 38,
+                              height: 38,
                               flexShrink: 0,
                               border: "1px solid #9B8762",
                               overflow: "hidden",
@@ -471,7 +528,7 @@ export default function EbookManagement() {
                         </Group>
                       </Table.Td>
 
-                      <Table.Td py={12} style={tdStyle}>
+                      <Table.Td py={10} style={tdStyle}>
                         <Group gap={8} wrap="nowrap">
                           <UserAvatar
                             url={book.avatar}
@@ -491,11 +548,11 @@ export default function EbookManagement() {
                         </Group>
                       </Table.Td>
 
-                      <Table.Td c="#E0E0E0" py={12} style={tdStyle}>
+                      <Table.Td c="#E0E0E0" py={10} style={tdStyle}>
                         {book.date}
                       </Table.Td>
 
-                      <Table.Td py={12} style={tdStyle}>
+                      <Table.Td py={10} style={tdStyle}>
                         <Box
                           px={10}
                           py={4}
@@ -513,7 +570,7 @@ export default function EbookManagement() {
                         </Box>
                       </Table.Td>
 
-                      <Table.Td py={12} style={tdStyle}>
+                      <Table.Td py={10} style={tdStyle}>
                         <Group justify="flex-end" wrap="nowrap">
                           <ActionIcon
                             variant="transparent"
@@ -537,7 +594,7 @@ export default function EbookManagement() {
             </Table>
           )}
 
-          {!loading && !error && visibleBooks.length === 0 && (
+          {!loading && !error && books.length === 0 && (
             <Text ta="center" c="#B8B4B0" size="sm" py="xl">
               No ebooks found.
             </Text>

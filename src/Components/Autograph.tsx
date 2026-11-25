@@ -5,6 +5,7 @@ import {
   Button,
   Flex,
   Loader,
+  Menu,
   Modal,
   Stack,
   Table,
@@ -24,9 +25,9 @@ import {
 } from "../api";
 
 /**
- * SIZING
- * One "u" = 1 Figma pixel, scaled so the frame fits the screen height.
- * Sidebar, header, logo, search and profile come from ReaderLayout.
+- SIZING
+- One "u" = 1 Figma pixel, scaled so the frame fits the screen height.
+- Sidebar, header, logo, search and profile come from ReaderLayout.
  */
 const u = (n: number): string => `calc(var(--u) * ${n})`;
 const uMin = (n: number, min: number): string =>
@@ -36,6 +37,15 @@ const rootVars = { "--u": "calc(100dvh / 1024)" } as CSSProperties;
 
 /** ek page par kitni rows dikhani hain */
 const PAGE_SIZE = 4;
+
+type FeeHistoryFilter = "ALL" | "WEEK" | "MONTH" | "DAYS_30";
+
+const FEE_FILTER_ITEMS: { value: FeeHistoryFilter; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "WEEK", label: "This Week" },
+  { value: "MONTH", label: "This Month" },
+  { value: "DAYS_30", label: "Last 30 Days" },
+];
 
 /** Icon wrapper: size comes from the Box, icon fills it (avoids the style typing error) */
 const Ico = ({
@@ -78,6 +88,7 @@ type HistoryRow = {
   fee: string;
   updatedBy: string;
   date: string;
+  rawDate: string | null;
 };
 
 function formatDate(value: unknown) {
@@ -89,6 +100,30 @@ function formatDate(value: unknown) {
     month: "short",
     year: "numeric",
   });
+}
+
+function matchesFeeFilter(
+  rawDate: string | null,
+  filter: FeeHistoryFilter,
+): boolean {
+  if (filter === "ALL") return true;
+  if (!rawDate) return false;
+
+  const d = new Date(rawDate);
+  if (isNaN(d.getTime())) return false;
+
+  const now = new Date();
+  if (filter === "MONTH") {
+    return (
+      d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+    );
+  }
+
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  if (filter === "WEEK") return diffDays >= -1 && diffDays <= 7;
+  if (filter === "DAYS_30") return diffDays >= -1 && diffDays <= 30;
+  return true;
 }
 
 // History ka ek item -> table ki row
@@ -123,11 +158,14 @@ function toHistoryRow(h: any, index: number): HistoryRow {
     }
   }
 
+  const rawDateVal = h.createdAt ?? h.updatedAt ?? h.date ?? null;
+
   return {
     id: String(h.id ?? index),
     fee: amount !== undefined && amount !== null ? `$${amount}/m` : "-",
     updatedBy,
-    date: formatDate(h.createdAt ?? h.updatedAt ?? h.date),
+    date: formatDate(rawDateVal),
+    rawDate: rawDateVal ? String(rawDateVal) : null,
   };
 }
 
@@ -179,10 +217,20 @@ export default function Autograph() {
 
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [tableSearch, setTableSearch] = useState<string>("");
+  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
+  const [historyFilter, setHistoryFilter] = useState<FeeHistoryFilter>("ALL");
   const [activePage, setActivePage] = useState<number>(1);
   const [fee, setFee] = useState<string>("");
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string>("");
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(tableSearch);
+      setActivePage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [tableSearch]);
 
   // Current fee: shuru mein aur har update ke baad
   useEffect(() => {
@@ -196,7 +244,7 @@ export default function Autograph() {
       );
   }, [reloadKey]);
 
-  // History: har page change par aur har update ke baad
+  // History: page, debouncedSearch, historyFilter aur reloadKey ke mutabiq
   useEffect(() => {
     let cancelled = false;
 
@@ -205,15 +253,30 @@ export default function Autograph() {
         setLoading(true);
         setError("");
 
-        const res: any = await getAutographFeeHistory(activePage, PAGE_SIZE);
+        const hasSearch = Boolean(debouncedSearch.trim());
+        const hasFilter = historyFilter !== "ALL";
+        const fetchPage = hasSearch || hasFilter ? 1 : activePage;
+        const fetchLimit = hasSearch || hasFilter ? 100 : PAGE_SIZE;
+
+        const res: any = await getAutographFeeHistory({
+          page: fetchPage,
+          limit: fetchLimit,
+          ...(hasSearch ? { search: debouncedSearch.trim() } : {}),
+          ...(hasFilter ? { filter: historyFilter } : {}),
+        });
         const list: any[] = Array.isArray(res)
           ? res
           : (res.data ?? res.items ?? res.history ?? []);
 
         if (!cancelled) {
           setRows(list.map(toHistoryRow));
-          // Backend pagination bheje to wahi, warna frontend par pages banayenge
-          setServerPages(res?.pagination?.totalPages ?? null);
+          if (hasSearch || hasFilter) {
+            setServerPages(null);
+          } else {
+            setServerPages(
+              res?.pagination?.totalPages ?? res?.meta?.totalPages ?? null,
+            );
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -228,18 +291,18 @@ export default function Autograph() {
     return () => {
       cancelled = true;
     };
-  }, [activePage, reloadKey]);
+  }, [activePage, debouncedSearch, historyFilter, reloadKey]);
 
-  // Search sirf current rows par chalta hai
   const filteredHistory = useMemo(() => {
-    const query = tableSearch.trim().toLowerCase();
+    const query = debouncedSearch.trim().toLowerCase();
 
-    return rows.filter(
-      (row) =>
+    return rows.filter((row) => {
+      const matchesQuery =
         !query ||
-        `${row.fee} ${row.updatedBy} ${row.date}`.toLowerCase().includes(query),
-    );
-  }, [tableSearch, rows]);
+        `${row.fee} ${row.updatedBy} ${row.date}`.toLowerCase().includes(query);
+      return matchesQuery && matchesFeeFilter(row.rawDate, historyFilter);
+    });
+  }, [debouncedSearch, historyFilter, rows]);
 
   // ---------- Pagination ----------
   const totalPages =
@@ -254,6 +317,15 @@ export default function Autograph() {
   // --------------------------------
 
   const cleanFee = fee.replace(/^\$/, "").trim();
+
+  const handleSelectFilter = (next: FeeHistoryFilter) => {
+    setHistoryFilter(next);
+    setActivePage(1);
+  };
+
+  const activeFilterLabel =
+    FEE_FILTER_ITEMS.find((item) => item.value === historyFilter)?.label ??
+    "Filter";
 
   const openEdit = () => {
     setFee("");
@@ -437,23 +509,61 @@ export default function Autograph() {
                     }}
                   />
 
-                  <UnstyledButton
-                    className="action"
-                    style={{
-                      width: u(122),
-                      height: u(42),
-                      borderRadius: 999,
-                      background: "#303030",
-                      color: C.cream,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: u(8),
-                    }}
-                  >
-                    <Ico icon={FaFilter} n={13} min={9} />
-                    <Text style={{ fontSize: uMin(16, 11) }}>Filter</Text>
-                  </UnstyledButton>
+                  <Menu shadow="md" width={165} position="bottom-end">
+                    <Menu.Target>
+                      <UnstyledButton
+                        className="action"
+                        style={{
+                          width: u(122),
+                          minWidth: 105,
+                          height: u(42),
+                          borderRadius: 999,
+                          background:
+                            historyFilter === "ALL" ? "#303030" : C.active,
+                          color: C.cream,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: u(8),
+                          padding: "0 12px",
+                        }}
+                      >
+                        <Ico icon={FaFilter} n={13} min={9} />
+                        <Text style={{ fontSize: uMin(16, 11) }}>
+                          {historyFilter === "ALL"
+                            ? "Filter"
+                            : activeFilterLabel}
+                        </Text>
+                      </UnstyledButton>
+                    </Menu.Target>
+
+                    <Menu.Dropdown
+                      style={{
+                        backgroundColor: "#2B2828",
+                        border: `1px solid ${C.border}`,
+                      }}
+                    >
+                      {FEE_FILTER_ITEMS.map((item) => (
+                        <Menu.Item
+                          key={item.value}
+                          onClick={() => handleSelectFilter(item.value)}
+                          style={{
+                            color:
+                              historyFilter === item.value
+                                ? C.cream
+                                : "#FFFFFF",
+                            backgroundColor:
+                              historyFilter === item.value
+                                ? "rgba(145, 69, 31, 0.45)"
+                                : "transparent",
+                            fontSize: "12px",
+                          }}
+                        >
+                          {item.label}
+                        </Menu.Item>
+                      ))}
+                    </Menu.Dropdown>
+                  </Menu>
                 </Flex>
               </Flex>
 
