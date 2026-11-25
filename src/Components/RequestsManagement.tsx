@@ -12,6 +12,7 @@ import {
   Table,
   ActionIcon,
   Loader,
+  Menu,
 } from "@mantine/core";
 
 import { MdSearch } from "react-icons/md";
@@ -36,6 +37,12 @@ import {
 } from "../api";
 
 type RequestStatus = "Pending" | "In progress" | "Delivered" | "Rejected";
+type RequestFilterValue =
+  | "ALL"
+  | "PENDING"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "REJECTED";
 
 interface RequestRow {
   id: string;
@@ -48,6 +55,14 @@ interface RequestRow {
   date: string;
   status: RequestStatus;
 }
+
+const REQUEST_FILTER_ITEMS: { value: RequestFilterValue; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "PENDING", label: "Pending" },
+  { value: "IN_PROGRESS", label: "In Progress" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "REJECTED", label: "Rejected" },
+];
 
 function formatDate(value: unknown) {
   if (!value) return "-";
@@ -137,14 +152,24 @@ export default function RequestsManagement() {
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
   const [tableSearch, setTableSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<RequestFilterValue>("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const PAGE_SIZE = 5;
+  const PAGE_SIZE = 4;
 
   const innerContainerBg = "#211E1E";
   const accentCardBg = "#FFE8B6";
   const numberColor = "#2A1005";
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(tableSearch);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [tableSearch]);
 
   // Stats: sirf ek baar
   useEffect(() => {
@@ -155,7 +180,7 @@ export default function RequestsManagement() {
       );
   }, []);
 
-  // Requests: har page change par
+  // Requests: page, debouncedSearch aur statusFilter ke mutabiq backend se
   useEffect(() => {
     let cancelled = false;
 
@@ -165,11 +190,18 @@ export default function RequestsManagement() {
         setError("");
 
         const [res, usersRes] = await Promise.all([
-          getAutographRequests(page, PAGE_SIZE),
+          getAutographRequests({
+            page,
+            limit: PAGE_SIZE,
+            search: debouncedSearch,
+            ...(statusFilter !== "ALL" ? { status: statusFilter } : {}),
+          }),
           getUsers(1, 100).catch(() => null),
         ]);
 
-        const items: any[] = res.data ?? [];
+        const items: any[] = Array.isArray(res)
+          ? res
+          : (res?.data ?? res?.items ?? res?.requests ?? []);
         const v: any = usersRes;
         const rawUsers = Array.isArray(v)
           ? v
@@ -185,7 +217,18 @@ export default function RequestsManagement() {
 
         if (!cancelled) {
           setRows(items.map((r) => toRow(r, avatarById)));
-          setTotalPages(res.pagination?.totalPages ?? 1);
+
+          const apiTotalPages =
+            res?.pagination?.totalPages ??
+            res?.meta?.totalPages ??
+            res?.totalPages;
+          if (typeof apiTotalPages === "number" && apiTotalPages > 0) {
+            setTotalPages(apiTotalPages);
+          } else {
+            setTotalPages(
+              Math.max(1, page + (items.length === PAGE_SIZE ? 1 : 0)),
+            );
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -200,9 +243,8 @@ export default function RequestsManagement() {
     return () => {
       cancelled = true;
     };
-  }, [page]);
+  }, [page, debouncedSearch, statusFilter]);
 
-  // Stats ke field names alag hon to yahan keys badal lein
   const pick = (...keys: string[]) => {
     for (const k of keys) {
       const v = stats?.[k];
@@ -226,15 +268,14 @@ export default function RequestsManagement() {
     },
   ];
 
-  // Search abhi sirf current page ki rows par chalta hai
-  const query = tableSearch.trim().toLowerCase();
-  const visibleRows = rows.filter(
-    (r) =>
-      !query ||
-      `${r.shortId} ${r.readerName} ${r.authorName} ${r.book} ${r.date} ${r.status}`
-        .toLowerCase()
-        .includes(query),
-  );
+  const handleSelectFilter = (next: RequestFilterValue) => {
+    setStatusFilter(next);
+    setPage(1);
+  };
+
+  const activeFilterLabel =
+    REQUEST_FILTER_ITEMS.find((item) => item.value === statusFilter)?.label ??
+    "Filter";
 
   const getStatusStyle = (status: RequestStatus) => {
     if (status === "Delivered") {
@@ -302,7 +343,7 @@ export default function RequestsManagement() {
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
-          gap: "20px",
+          gap: "16px",
         }}
       >
         <SimpleGrid cols={4} spacing="md" style={{ flexShrink: 0 }}>
@@ -361,25 +402,55 @@ export default function RequestsManagement() {
               }}
             />
 
-            <UnstyledButton>
-              <Box
-                px={16}
+            <Menu shadow="md" width={160} position="bottom-end">
+              <Menu.Target>
+                <UnstyledButton>
+                  <Box
+                    px={16}
+                    style={{
+                      height: 36,
+                      borderRadius: "20px",
+                      backgroundColor:
+                        statusFilter === "ALL" ? "#383838" : "#91451F",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 7,
+                    }}
+                  >
+                    <FiFilter size={15} color="#E0E0E0" />
+
+                    <Text size="12px" c="#E0E0E0" fw={500}>
+                      {statusFilter === "ALL" ? "Filter" : activeFilterLabel}
+                    </Text>
+                  </Box>
+                </UnstyledButton>
+              </Menu.Target>
+
+              <Menu.Dropdown
                 style={{
-                  height: 36,
-                  borderRadius: "20px",
-                  background: "#383838",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
+                  backgroundColor: "#2B2828",
+                  border: "1px solid #45413D",
                 }}
               >
-                <FiFilter size={15} color="#E0E0E0" />
-
-                <Text size="12px" c="#E0E0E0">
-                  Filter
-                </Text>
-              </Box>
-            </UnstyledButton>
+                {REQUEST_FILTER_ITEMS.map((item) => (
+                  <Menu.Item
+                    key={item.value}
+                    onClick={() => handleSelectFilter(item.value)}
+                    style={{
+                      color:
+                        statusFilter === item.value ? accentCardBg : "#FFFFFF",
+                      backgroundColor:
+                        statusFilter === item.value
+                          ? "rgba(145, 69, 31, 0.45)"
+                          : "transparent",
+                      fontSize: "12px",
+                    }}
+                  >
+                    {item.label}
+                  </Menu.Item>
+                ))}
+              </Menu.Dropdown>
+            </Menu>
           </Group>
         </Flex>
 
@@ -431,29 +502,29 @@ export default function RequestsManagement() {
               </Table.Thead>
 
               <Table.Tbody>
-                {visibleRows.map((request) => (
+                {rows.map((request) => (
                   <Table.Tr key={request.id} style={{ borderBottom: "none" }}>
-                    <Table.Td c="#E0E0E0" py={12} style={tdStyle}>
+                    <Table.Td c="#E0E0E0" py={10} style={tdStyle}>
                       {request.shortId}
                     </Table.Td>
 
-                    <Table.Td py={12} style={tdStyle}>
+                    <Table.Td py={10} style={tdStyle}>
                       {renderPerson(request.readerName, request.readerAvatar)}
                     </Table.Td>
 
-                    <Table.Td py={12} style={tdStyle}>
+                    <Table.Td py={10} style={tdStyle}>
                       {renderPerson(request.authorName, request.authorAvatar)}
                     </Table.Td>
 
-                    <Table.Td c="#FFFFFF" fw={500} py={12} style={tdStyle}>
+                    <Table.Td c="#FFFFFF" fw={500} py={10} style={tdStyle}>
                       {request.book}
                     </Table.Td>
 
-                    <Table.Td c="#E0E0E0" py={12} style={tdStyle}>
+                    <Table.Td c="#E0E0E0" py={10} style={tdStyle}>
                       {request.date}
                     </Table.Td>
 
-                    <Table.Td py={12} style={tdStyle}>
+                    <Table.Td py={10} style={tdStyle}>
                       <Box
                         px={10}
                         py={4}
@@ -471,7 +542,7 @@ export default function RequestsManagement() {
                       </Box>
                     </Table.Td>
 
-                    <Table.Td py={12} style={tdStyle}>
+                    <Table.Td py={10} style={tdStyle}>
                       <Group justify="flex-end" wrap="nowrap">
                         <ActionIcon
                           variant="transparent"
@@ -496,7 +567,7 @@ export default function RequestsManagement() {
             </Table>
           )}
 
-          {!loading && !error && visibleRows.length === 0 && (
+          {!loading && !error && rows.length === 0 && (
             <Text ta="center" c="#B8B4B0" size="sm" py="xl">
               No requests found.
             </Text>

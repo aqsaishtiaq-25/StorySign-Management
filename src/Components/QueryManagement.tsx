@@ -6,6 +6,7 @@ import {
   Flex,
   Group,
   Loader,
+  Menu,
   Modal,
   Select,
   SimpleGrid,
@@ -52,11 +53,12 @@ const C = {
   white: "#F7E5D7",
   muted: "#C9C3B6",
   field: "#303030",
-  number: "#2A1005", // stat cards ka text (Author / Reader Management jaisa)
+  number: "#2A1005",
 };
 
 /* ---------------- types ---------------- */
 type QueryStatus = "Pending" | "In Process" | "Resolved";
+type StatusFilterValue = "ALL" | "PENDING" | "IN_PROCESS" | "RESOLVED";
 
 type QueryRow = {
   id: string;
@@ -73,7 +75,6 @@ type StatItem = {
   icon: IconType;
 };
 
-/** ek page par kitni rows dikhani hain (chhote cards ke baad 5 rows fit hoti hain) */
 const PAGE_SIZE = 4;
 
 const statusStyle: Record<
@@ -99,6 +100,13 @@ const STATUS_OPTIONS = [
   { value: "RESOLVED", label: "Resolved" },
 ];
 
+const FILTER_ITEMS: { value: StatusFilterValue; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "PENDING", label: "Pending" },
+  { value: "IN_PROCESS", label: "In Process" },
+  { value: "RESOLVED", label: "Resolved" },
+];
+
 const modalStyles = {
   content: { background: C.panel, borderRadius: 16 },
   header: { background: C.panel },
@@ -118,7 +126,6 @@ const inputStyles = {
 
 /* ---------------- helpers ---------------- */
 
-// Backend status -> UI label (kai spellings sambhalta hai)
 function toStatus(raw: unknown): QueryStatus {
   const s = String(raw ?? "")
     .toUpperCase()
@@ -142,7 +149,6 @@ function capitalize(s: unknown) {
   return v ? v.charAt(0).toUpperCase() + v.slice(1).toLowerCase() : "-";
 }
 
-// Minutes -> "45 m" / "2 h" / "1 d"
 function formatMinutes(m: number) {
   if (!m) return "0 m";
   if (m < 60) return `${Math.round(m)} m`;
@@ -150,7 +156,6 @@ function formatMinutes(m: number) {
   return `${(m / 1440).toFixed(1).replace(/\.0$/, "")} d`;
 }
 
-// 16 Nov, 2026
 function formatDate(iso: string) {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "-";
@@ -161,7 +166,6 @@ function formatDate(iso: string) {
 
 /* ---------------- chhote reusable components ---------------- */
 
-// Author / Reader Management ke cards jaisa: title upar left, number neeche, icon upar right
 function StatCard({ label, value, icon: Icon }: StatItem) {
   return (
     <Box
@@ -257,10 +261,10 @@ function QueryDetailModal({
   onClose,
   onChanged,
 }: {
-  queryId: string | null; // null ho to modal band
+  queryId: string | null;
   userName: string;
   onClose: () => void;
-  onChanged: () => void; // update/delete ke baad list + stats dobara mangwane ke liye
+  onChanged: () => void;
 }) {
   const [item, setItem] = useState<ApiSupportQuery | null>(null);
   const [status, setStatus] = useState<string | null>("PENDING");
@@ -440,20 +444,28 @@ function QueryDetailModal({
 function AdminQueries() {
   const [stats, setStats] = useState<SupportQueryStats | null>(null);
   const [rows, setRows] = useState<QueryRow[]>([]);
-  const [serverPages, setServerPages] = useState<number | null>(null);
+  const [totalPages, setTotalPages] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("ALL");
 
-  // update/delete ke baad list aur stats dobara mangwane ke liye
   const [refresh, setRefresh] = useState(0);
   const [selected, setSelected] = useState<{ id: string; name: string } | null>(
     null,
   );
 
-  // Stats: shuru mein aur har update/delete ke baad
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
   useEffect(() => {
     getSupportQueryStats()
       .then(setStats)
@@ -462,7 +474,6 @@ function AdminQueries() {
       );
   }, [refresh]);
 
-  // Queries: har page change ya update/delete par
   useEffect(() => {
     let cancelled = false;
 
@@ -471,12 +482,17 @@ function AdminQueries() {
         setLoading(true);
         setError("");
 
-        const res: any = await getSupportQueries(page, PAGE_SIZE);
+        const res: any = await getSupportQueries({
+          page,
+          limit: PAGE_SIZE,
+          search: debouncedSearch,
+          ...(statusFilter !== "ALL" ? { status: statusFilter } : {}),
+        });
+
         const items: any[] = Array.isArray(res)
           ? res
           : (res?.data ?? res?.items ?? res?.queries ?? []);
 
-        // Is page ke saare users ki details (har user sirf ek baar)
         const ids = [
           ...new Set(items.map((q) => q.userId).filter(Boolean)),
         ] as string[];
@@ -501,15 +517,24 @@ function AdminQueries() {
                 id: String(q.id),
                 name: fullName(u),
                 avatar: u?.avatarUrl ?? "",
-
                 role: capitalize(u?.role),
                 subject: q.subject ?? "-",
                 status: toStatus(q.status),
               };
             }),
           );
-          // Backend pagination bheje to wahi, warna frontend par pages banayenge
-          setServerPages(res?.pagination?.totalPages ?? null);
+
+          const apiTotalPages =
+            res?.pagination?.totalPages ??
+            res?.meta?.totalPages ??
+            res?.totalPages;
+          if (typeof apiTotalPages === "number" && apiTotalPages > 0) {
+            setTotalPages(apiTotalPages);
+          } else {
+            setTotalPages(
+              Math.max(1, page + (items.length === PAGE_SIZE ? 1 : 0)),
+            );
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -524,7 +549,7 @@ function AdminQueries() {
     return () => {
       cancelled = true;
     };
-  }, [page, refresh]);
+  }, [page, debouncedSearch, statusFilter, refresh]);
 
   const statItems: StatItem[] = [
     {
@@ -549,25 +574,13 @@ function AdminQueries() {
     },
   ];
 
-  // Search sirf current rows par chalta hai
-  const query = search.trim().toLowerCase();
-  const filtered = rows.filter(
-    (r) =>
-      !query ||
-      `${r.name} ${r.role} ${r.subject} ${r.status}`
-        .toLowerCase()
-        .includes(query),
-  );
+  const handleSelectFilter = (next: StatusFilterValue) => {
+    setStatusFilter(next);
+    setPage(1);
+  };
 
-  // ---------- Pagination ----------
-  const totalPages =
-    serverPages ?? Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = serverPages ? page : Math.min(page, totalPages);
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const currentRows = serverPages
-    ? filtered
-    : filtered.slice(start, start + PAGE_SIZE);
-  // --------------------------------
+  const activeFilterLabel =
+    FILTER_ITEMS.find((item) => item.value === statusFilter)?.label ?? "Filter";
 
   return (
     <ReaderLayout title="Query Management" activePage="queries">
@@ -577,7 +590,6 @@ function AdminQueries() {
         .action:hover { opacity: .85; }
       `}</style>
 
-      {/* Inner panel (Author / Reader Management jaisi padding aur gap) */}
       <Box
         bg={C.panel}
         style={{
@@ -587,19 +599,17 @@ function AdminQueries() {
           borderRadius: 20,
           display: "flex",
           flexDirection: "column",
-          gap: "20px",
+          gap: "16px",
           overflow: "hidden",
           boxSizing: "border-box",
         }}
       >
-        {/* Stat cards */}
         <SimpleGrid cols={4} spacing="md" style={{ flexShrink: 0 }}>
           {statItems.map((item) => (
             <StatCard key={item.label} {...item} />
           ))}
         </SimpleGrid>
 
-        {/* Title + search + filter */}
         <Flex align="center" justify="space-between" style={{ flexShrink: 0 }}>
           <Text size="26px" fw={600} c={C.cream} style={{ lineHeight: 1 }}>
             All Queries
@@ -625,27 +635,55 @@ function AdminQueries() {
               }}
             />
 
-            <UnstyledButton
-              className="action"
-              style={{
-                width: 108,
-                height: 38,
-                borderRadius: 999,
-                background: C.field,
-                color: C.cream,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-              }}
-            >
-              <FaFilter size={12} />
-              <Text size="14px">Filter</Text>
-            </UnstyledButton>
+            <Menu shadow="md" width={160} position="bottom-end">
+              <Menu.Target>
+                <UnstyledButton
+                  className="action"
+                  style={{
+                    minWidth: 108,
+                    padding: "0 14px",
+                    height: 38,
+                    borderRadius: 999,
+                    background: statusFilter === "ALL" ? C.field : C.active,
+                    color: C.cream,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                  }}
+                >
+                  <FaFilter size={12} />
+                  <Text size="14px">
+                    {statusFilter === "ALL" ? "Filter" : activeFilterLabel}
+                  </Text>
+                </UnstyledButton>
+              </Menu.Target>
+
+              <Menu.Dropdown
+                style={{
+                  backgroundColor: C.panel,
+                  border: `1px solid ${C.border}`,
+                }}
+              >
+                {FILTER_ITEMS.map((item) => (
+                  <Menu.Item
+                    key={item.value}
+                    onClick={() => handleSelectFilter(item.value)}
+                    style={{
+                      color: statusFilter === item.value ? C.cream : C.white,
+                      backgroundColor:
+                        statusFilter === item.value ? C.active : "transparent",
+                      fontSize: "13px",
+                    }}
+                  >
+                    {item.label}
+                  </Menu.Item>
+                ))}
+              </Menu.Dropdown>
+            </Menu>
           </Flex>
         </Flex>
 
-        {/* Table */}
         <Box
           className="hide-scrollbar"
           style={{ flex: 1, minHeight: 0, overflow: "auto" }}
@@ -670,7 +708,7 @@ function AdminQueries() {
                   borderCollapse: "collapse",
                 },
                 th: {
-                  height: 42,
+                  height: 38,
                   padding: 0,
                   color: C.cream,
                   fontSize: 18,
@@ -680,7 +718,7 @@ function AdminQueries() {
                   borderBottom: "none",
                 },
                 td: {
-                  height: 74,
+                  height: 66,
                   padding: 0,
                   verticalAlign: "middle",
                   borderTop: "none",
@@ -699,7 +737,7 @@ function AdminQueries() {
               </Table.Thead>
 
               <Table.Tbody>
-                {currentRows.map((row) => (
+                {rows.map((row) => (
                   <Table.Tr key={row.id}>
                     <Table.Td>
                       <Flex align="center" gap={12}>
@@ -766,7 +804,7 @@ function AdminQueries() {
             </Table>
           )}
 
-          {!loading && !error && currentRows.length === 0 && (
+          {!loading && !error && rows.length === 0 && (
             <Text ta="center" c={C.muted} size="sm" py="xl">
               No queries found.
             </Text>
@@ -774,11 +812,7 @@ function AdminQueries() {
         </Box>
       </Box>
 
-      <Pagination
-        page={currentPage}
-        totalPages={totalPages}
-        onChange={setPage}
-      />
+      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
       <QueryDetailModal
         queryId={selected?.id ?? null}
@@ -800,10 +834,8 @@ function MyQueries() {
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
 
-  // query dekhna
   const [viewing, setViewing] = useState<ApiSupportQuery | null>(null);
 
-  // nayi query bhejna
   const [creating, setCreating] = useState(false);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
@@ -817,7 +849,10 @@ function MyQueries() {
       try {
         setLoading(true);
         setError("");
-        const res: any = await getSupportQueries(page, PAGE_SIZE);
+        const res: any = await getSupportQueries({
+          page,
+          limit: PAGE_SIZE,
+        });
         const items: ApiSupportQuery[] = Array.isArray(res)
           ? res
           : (res?.data ?? []);
@@ -890,7 +925,6 @@ function MyQueries() {
           boxSizing: "border-box",
         }}
       >
-        {/* Title + New Query */}
         <Flex align="center" justify="space-between" style={{ flexShrink: 0 }}>
           <Text size="26px" fw={600} c={C.cream} style={{ lineHeight: 1 }}>
             My Queries
@@ -908,7 +942,6 @@ function MyQueries() {
           </Button>
         </Flex>
 
-        {/* Table */}
         <Box
           className="hide-scrollbar"
           mt={18}
@@ -934,7 +967,7 @@ function MyQueries() {
                   borderCollapse: "collapse",
                 },
                 th: {
-                  height: 42,
+                  height: 38,
                   padding: 0,
                   color: C.cream,
                   fontSize: 18,
@@ -944,7 +977,7 @@ function MyQueries() {
                   borderBottom: "none",
                 },
                 td: {
-                  height: 74,
+                  height: 66,
                   padding: 0,
                   verticalAlign: "middle",
                   borderTop: "none",
@@ -1019,7 +1052,6 @@ function MyQueries() {
 
       <Pagination page={page} totalPages={totalPages} onChange={setPage} />
 
-      {/* Nayi query */}
       <Modal
         opened={creating}
         onClose={() => setCreating(false)}
@@ -1066,7 +1098,6 @@ function MyQueries() {
         </Flex>
       </Modal>
 
-      {/* Query aur admin ka jawab */}
       <Modal
         opened={!!viewing}
         onClose={() => setViewing(null)}
@@ -1145,7 +1176,6 @@ export default function Queries() {
       .catch(() => setRole(""));
   }, []);
 
-  // Role aane tak wait, taake admin ke API (jo reader ke liye 403 dete hain) na chalein
   if (role === null) {
     return (
       <ReaderLayout title="Query Management" activePage="queries">

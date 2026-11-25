@@ -15,6 +15,7 @@ import {
   Overlay,
   UnstyledButton,
   ActionIcon,
+  Menu,
 } from "@mantine/core";
 
 import { MdSearch, MdFilterList, MdAdd } from "react-icons/md";
@@ -40,7 +41,15 @@ import {
 } from "../api";
 import type { ApiPlan, ApiSubscription, ApiUser } from "../api";
 
-// List "data" ke andar ho sakti hai, ya seedha array ho
+type SubStatusFilter = "ALL" | "ACTIVE" | "CANCELLED" | "EXPIRED";
+
+const SUB_FILTER_ITEMS: { value: SubStatusFilter; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "ACTIVE", label: "Active" },
+  { value: "CANCELLED", label: "Cancelled" },
+  { value: "EXPIRED", label: "Expired" },
+];
+
 const toList = (res: any): any[] | null =>
   Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : null;
 
@@ -58,6 +67,18 @@ const formatDate = (iso?: string) =>
         year: "numeric",
       })
     : "-";
+
+const normalizeSubStatus = (
+  raw?: string,
+): "active" | "cancelled" | "expired" | "other" => {
+  const s = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (s === "active") return "active";
+  if (s === "cancelled" || s === "canceled") return "cancelled";
+  if (s === "expired") return "expired";
+  return "other";
+};
 
 const initialsOf = (name: string): string =>
   name
@@ -117,6 +138,8 @@ export default function SubscriptionPlans() {
   const inputBg = "#343131";
   const brown = "#81401F";
 
+  const PAGE_SIZE = 3;
+
   // ---------- Role ----------
   const [role, setRole] = useState<string | null>(null);
   const isAdmin = role === "ADMIN";
@@ -147,12 +170,26 @@ export default function SubscriptionPlans() {
   const [planCharges, setPlanCharges] = useState("");
   const [features, setFeatures] = useState<string[]>([""]);
 
+  // ---------- Search + Filter + Pagination (admin) ----------
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<SubStatusFilter>("ALL");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   const isEditing = editingId !== null;
 
-  // ---------- Admin: plans + subscribers ----------
-  const loadAdmin = async (isCancelled: () => boolean = () => false) => {
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const loadPlansAndUsers = async (
+    isCancelled: () => boolean = () => false,
+  ) => {
     try {
       const plansRes = await getPlans();
       if (isCancelled()) return;
@@ -166,23 +203,98 @@ export default function SubscriptionPlans() {
     }
 
     try {
-      const [subsRes, usersRes] = await Promise.all([
-        getSubscriptions(),
-        getUsers(1, 100),
-      ]);
+      const usersRes = await getUsers(1, 100);
       if (isCancelled()) return;
-      setSubs((toList(subsRes) ?? []) as ApiSubscription[]);
       setUsers((toList(usersRes) ?? []) as ApiUser[]);
+    } catch {
+      // Users optional for plan cards
+    }
+  };
+
+  const loadAdminSubscriptions = async (
+    targetPage: number,
+    searchVal: string,
+    filterVal: SubStatusFilter,
+    isCancelled: () => boolean = () => false,
+  ) => {
+    try {
+      const hasActiveFilter = filterVal !== "ALL";
+      const hasSearch = Boolean(searchVal.trim());
+
+      // Jab filter ya search active ho to zyada items lekar exact status match karte hain
+      // taake backend case-sensitivity ya empty param response ki wajah se rows miss na hon
+      const fetchLimit = hasActiveFilter || hasSearch ? 100 : PAGE_SIZE;
+      const fetchPage = hasActiveFilter || hasSearch ? 1 : targetPage;
+
+      const subsRes: any = await getSubscriptions({
+        page: fetchPage,
+        limit: fetchLimit,
+        ...(hasSearch ? { planName: searchVal.trim() } : {}),
+        ...(hasActiveFilter ? { status: filterVal.toLowerCase() } : {}),
+      });
+      if (isCancelled()) return;
+
+      let list = (toList(subsRes) ?? []) as ApiSubscription[];
+
+      if (hasActiveFilter) {
+        const expected = filterVal.toLowerCase();
+        list = list.filter((s) => normalizeSubStatus(s.status) === expected);
+      }
+
+      if (hasSearch) {
+        const q = searchVal.trim().toLowerCase();
+        list = list.filter((s: any) => {
+          const pName = String(s?.plan?.name ?? "").toLowerCase();
+          const uName =
+            `${s?.user?.firstName ?? ""} ${s?.user?.lastName ?? ""}`.toLowerCase();
+          return pName.includes(q) || uName.includes(q);
+        });
+      }
+
+      if (hasActiveFilter || hasSearch) {
+        const computedTotalPages = Math.max(
+          1,
+          Math.ceil(list.length / PAGE_SIZE),
+        );
+        const safePage = Math.max(1, Math.min(targetPage, computedTotalPages));
+        const startIdx = (safePage - 1) * PAGE_SIZE;
+        setSubs(list.slice(startIdx, startIdx + PAGE_SIZE));
+        setTotalPages(computedTotalPages);
+      } else {
+        setSubs(list);
+        const apiTotalPages =
+          subsRes?.pagination?.totalPages ??
+          subsRes?.meta?.totalPages ??
+          subsRes?.totalPages;
+        if (typeof apiTotalPages === "number" && apiTotalPages > 0) {
+          setTotalPages(apiTotalPages);
+        } else {
+          setTotalPages(
+            Math.max(1, targetPage + (list.length === PAGE_SIZE ? 1 : 0)),
+          );
+        }
+      }
+
       setSubsError("");
     } catch (err) {
       if (isCancelled()) return;
+      setSubs([]);
       setSubsError(`Could not load subscribers: ${(err as Error).message}`);
     } finally {
       if (!isCancelled()) setLoading(false);
     }
   };
 
-  // ---------- Author: plans + own subscription ----------
+  const loadAdmin = async (isCancelled: () => boolean = () => false) => {
+    await loadPlansAndUsers(isCancelled);
+    await loadAdminSubscriptions(
+      page,
+      debouncedSearch,
+      statusFilter,
+      isCancelled,
+    );
+  };
+
   const loadAuthor = async (isCancelled: () => boolean = () => false) => {
     try {
       const plansRes = await getPlans();
@@ -211,7 +323,6 @@ export default function SubscriptionPlans() {
     }
   };
 
-  // ---------- Pehle role pata karo, phir us ka data lao ----------
   useEffect(() => {
     let cancelled = false;
 
@@ -240,47 +351,43 @@ export default function SubscriptionPlans() {
     };
   }, []);
 
-  // ---------- Admin: subscribers table ka data ----------
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    loadAdminSubscriptions(
+      page,
+      debouncedSearch,
+      statusFilter,
+      () => cancelled,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, page, debouncedSearch, statusFilter]);
+
   const planById = new Map(plans.map((p) => [p.id, p]));
   const userById = new Map(users.map((u) => [u.id, u]));
 
-  const subscribers: SubscriberRow[] = subs
-    .map((s) => {
-      const fullUser = userById.get(s.userId);
-      const u: any = fullUser ?? s.user;
-      const p: any = s.plan ?? planById.get(s.planId);
-      const charges = p?.planCharges;
+  const subscribers: SubscriberRow[] = subs.map((s) => {
+    const fullUser = userById.get(s.userId);
+    const u: any = fullUser ?? s.user;
+    const p: any = s.plan ?? planById.get(s.planId);
+    const charges = p?.planCharges;
 
-      return {
-        id: s.id,
-        userId: s.userId,
-        name: u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "Unknown",
-        avatar: fullUser?.avatarUrl || u?.avatarUrl || "",
-        plan: p?.name ?? "-",
-        status: (s.status ?? "").toLowerCase(),
-        billing:
-          charges !== undefined ? `$${charges}${suffix(p?.planType)}` : "-",
-        started: formatDate(s.startsAt),
-        nextBill: formatDate(s.endsAt),
-      };
-    })
-    .filter(
-      (r) =>
-        r.name.toLowerCase().includes(search.toLowerCase()) ||
-        r.plan.toLowerCase().includes(search.toLowerCase()),
-    );
+    return {
+      id: s.id,
+      userId: s.userId,
+      name: u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "Unknown",
+      avatar: fullUser?.avatarUrl || u?.avatarUrl || "",
+      plan: p?.name ?? "-",
+      status: normalizeSubStatus(s.status),
+      billing:
+        charges !== undefined ? `$${charges}${suffix(p?.planType)}` : "-",
+      started: formatDate(s.startsAt),
+      nextBill: formatDate(s.endsAt),
+    };
+  });
 
-  // ---------- Pagination (admin) ----------
-  const PAGE_SIZE = 3; // ek page par 3 rows (design ke mutabiq)
-  const [page, setPage] = useState(1);
-
-  const totalPages = Math.max(1, Math.ceil(subscribers.length / PAGE_SIZE));
-  const currentPage = Math.max(1, Math.min(page, totalPages));
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const currentSubscribers = subscribers.slice(start, start + PAGE_SIZE);
-  // --------------------------------
-
-  // ---------- Author: apni subscription ka hisaab ----------
   const mySubStatus = (mySub?.status ?? "").toLowerCase();
   const hasActive = mySub !== null && mySubStatus === "active";
   const myPlan: any = mySub
@@ -288,9 +395,17 @@ export default function SubscriptionPlans() {
     : null;
   const authorPlans = plans.filter((p) => p.isActive);
 
-  // Plan cards ke columns: 2 plans hon to aadhi aadhi width, zyada hon to 3 column
   const planCols = Math.min(Math.max(plans.length, 2), 3);
   const authorPlanCols = Math.min(Math.max(authorPlans.length, 2), 3);
+
+  const handleSelectFilter = (next: SubStatusFilter) => {
+    setStatusFilter(next);
+    setPage(1);
+  };
+
+  const activeFilterLabel =
+    SUB_FILTER_ITEMS.find((item) => item.value === statusFilter)?.label ??
+    "Filter";
 
   const handleSubscribe = async (plan: ApiPlan) => {
     if (
@@ -322,7 +437,6 @@ export default function SubscriptionPlans() {
       setActionError("");
       setInfoMsg("");
       await cancelMySubscription();
-      // Reload par backend ab "not found" dega, isliye status yahin badal dete hain
       setMySub((prev) => (prev ? { ...prev, status: "cancelled" } : prev));
       setInfoMsg("Your subscription has been cancelled.");
     } catch (err) {
@@ -332,7 +446,6 @@ export default function SubscriptionPlans() {
     }
   };
 
-  // ---------- Admin: form ----------
   const resetForm = () => {
     setEditingId(null);
     setPlanName("");
@@ -408,7 +521,8 @@ export default function SubscriptionPlans() {
         setSuccessText("added");
       }
 
-      await loadAdmin();
+      await loadPlansAndUsers();
+      await loadAdminSubscriptions(page, debouncedSearch, statusFilter);
       setShowSuccess(true);
     } catch (err) {
       setFormError((err as Error).message);
@@ -431,27 +545,25 @@ export default function SubscriptionPlans() {
     setFeatures((prev) => prev.map((f, i) => (i === index ? value : f)));
   };
 
-  // ---------- Admin: delete plan ----------
   const handleDeletePlan = async (plan: ApiPlan) => {
     if (!window.confirm(`Delete the plan "${plan.name}"?`)) return;
 
     try {
       setActionError("");
       await deletePlan(plan.id);
-      await loadAdmin();
+      await loadPlansAndUsers();
     } catch (err) {
       setActionError((err as Error).message);
     }
   };
 
-  // ---------- Admin: cancel / delete subscription ----------
   const handleCancelSubscription = async (row: SubscriberRow) => {
     if (!window.confirm(`Cancel the subscription of ${row.name}?`)) return;
 
     try {
       setActionError("");
       await cancelSubscription(row.id);
-      await loadAdmin();
+      await loadAdminSubscriptions(page, debouncedSearch, statusFilter);
     } catch (err) {
       setActionError((err as Error).message);
     }
@@ -463,7 +575,7 @@ export default function SubscriptionPlans() {
     try {
       setActionError("");
       await deleteSubscription(row.id);
-      await loadAdmin();
+      await loadAdminSubscriptions(page, debouncedSearch, statusFilter);
     } catch (err) {
       setActionError((err as Error).message);
     }
@@ -561,7 +673,6 @@ export default function SubscriptionPlans() {
 
   return (
     <ReaderLayout title={pageTitle} activePage="subscription">
-      {/* ================= Na admin, na author ================= */}
       {!isAdmin && !isAuthor && (
         <Box
           style={{
@@ -581,7 +692,6 @@ export default function SubscriptionPlans() {
         </Box>
       )}
 
-      {/* ================= AUTHOR VIEW ================= */}
       {isAuthor && (
         <Box
           style={{
@@ -803,7 +913,6 @@ export default function SubscriptionPlans() {
         </Box>
       )}
 
-      {/* ================= ADMIN VIEW ================= */}
       {isAdmin && view === "list" && (
         <>
           <Box
@@ -831,7 +940,6 @@ export default function SubscriptionPlans() {
               </Text>
             )}
 
-            {/* ---------- Plan cards ---------- */}
             <Box
               style={{
                 flexShrink: 0,
@@ -935,10 +1043,7 @@ export default function SubscriptionPlans() {
                 <TextInput
                   placeholder="Search"
                   value={search}
-                  onChange={(e) => {
-                    setSearch(e.currentTarget.value);
-                    setPage(1);
-                  }}
+                  onChange={(e) => setSearch(e.currentTarget.value)}
                   leftSection={<MdSearch size={15} color="#D5D0C6" />}
                   styles={{
                     input: {
@@ -955,22 +1060,52 @@ export default function SubscriptionPlans() {
                   }}
                 />
 
-                <UnstyledButton
-                  style={{
-                    height: "32px",
-                    padding: "0 14px",
-                    backgroundColor: "#383838",
-                    borderRadius: "20px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <MdFilterList size={14} color="#E0E0E0" />
-                  <Text size="11px" c="#E0E0E0">
-                    Filter
-                  </Text>
-                </UnstyledButton>
+                <Menu shadow="md" width={150} position="bottom-end">
+                  <Menu.Target>
+                    <UnstyledButton
+                      style={{
+                        height: "32px",
+                        padding: "0 14px",
+                        backgroundColor:
+                          statusFilter === "ALL" ? "#383838" : brown,
+                        borderRadius: "20px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                      }}
+                    >
+                      <MdFilterList size={14} color="#E0E0E0" />
+                      <Text size="11px" c="#E0E0E0">
+                        {statusFilter === "ALL" ? "Filter" : activeFilterLabel}
+                      </Text>
+                    </UnstyledButton>
+                  </Menu.Target>
+
+                  <Menu.Dropdown
+                    style={{
+                      backgroundColor: "#2B2828",
+                      border: "1px solid #45413D",
+                    }}
+                  >
+                    {SUB_FILTER_ITEMS.map((item) => (
+                      <Menu.Item
+                        key={item.value}
+                        onClick={() => handleSelectFilter(item.value)}
+                        style={{
+                          color:
+                            statusFilter === item.value ? accent : "#FFFFFF",
+                          backgroundColor:
+                            statusFilter === item.value
+                              ? "rgba(129, 64, 31, 0.45)"
+                              : "transparent",
+                          fontSize: "11px",
+                        }}
+                      >
+                        {item.label}
+                      </Menu.Item>
+                    ))}
+                  </Menu.Dropdown>
+                </Menu>
 
                 <UnstyledButton
                   onClick={openAddForm}
@@ -1045,12 +1180,12 @@ export default function SubscriptionPlans() {
                   </Table.Thead>
 
                   <Table.Tbody>
-                    {currentSubscribers.map((subscriber) => (
+                    {subscribers.map((subscriber) => (
                       <Table.Tr
                         key={subscriber.id}
                         style={{ borderBottom: "none" }}
                       >
-                        <Table.Td py={12} style={tdStyle}>
+                        <Table.Td py={10} style={tdStyle}>
                           <Group gap={8} wrap="nowrap">
                             <UserAvatar
                               url={subscriber.avatar}
@@ -1069,7 +1204,7 @@ export default function SubscriptionPlans() {
                           </Group>
                         </Table.Td>
 
-                        <Table.Td py={12} style={tdStyle}>
+                        <Table.Td py={10} style={tdStyle}>
                           <Box
                             style={{
                               display: "inline-block",
@@ -1091,25 +1226,25 @@ export default function SubscriptionPlans() {
                           )}
                         </Table.Td>
 
-                        <Table.Td py={12} style={tdStyle}>
+                        <Table.Td py={10} style={tdStyle}>
                           <Text size="14px" c={accent} fw={400}>
                             {subscriber.billing}
                           </Text>
                         </Table.Td>
 
-                        <Table.Td py={12} style={tdStyle}>
+                        <Table.Td py={10} style={tdStyle}>
                           <Text size="10px" c="#E0E0E0" fw={500}>
                             {subscriber.started}
                           </Text>
                         </Table.Td>
 
-                        <Table.Td py={12} style={tdStyle}>
+                        <Table.Td py={10} style={tdStyle}>
                           <Text size="10px" c="#E0E0E0" fw={500}>
                             {subscriber.nextBill}
                           </Text>
                         </Table.Td>
 
-                        <Table.Td py={12} style={tdStyle}>
+                        <Table.Td py={10} style={tdStyle}>
                           <Group gap={12} wrap="nowrap">
                             <UnstyledButton
                               onClick={() => openProfile(subscriber.userId)}
@@ -1165,11 +1300,7 @@ export default function SubscriptionPlans() {
             </Box>
           </Box>
 
-          <Pagination
-            page={currentPage}
-            totalPages={totalPages}
-            onChange={setPage}
-          />
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
         </>
       )}
 

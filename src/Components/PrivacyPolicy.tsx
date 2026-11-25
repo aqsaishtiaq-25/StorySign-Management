@@ -63,7 +63,9 @@ export default function PrivacyPolicy() {
   const [errorMsg, setErrorMsg] = useState("");
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -71,6 +73,14 @@ export default function PrivacyPolicy() {
 
   const isEditing = editingId !== null;
   const pageSize = 5;
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
 
   // ---------- Role check (admin hai ya nahi) ----------
   useEffect(() => {
@@ -93,14 +103,13 @@ export default function PrivacyPolicy() {
   // ----------------------------------------------------
 
   // ---------- Backend se list lana ----------
-  // isCancelled: page chhorne ya dobara chalne par purana jawab ignore karne ke liye
   const loadPolicies = async (isCancelled: () => boolean = () => false) => {
     try {
-      const res = await getPolicies();
+      setLoading(true);
+      const res: any = await getPolicies();
       if (isCancelled()) return;
 
-      // list "data" mein ho sakti hai, ya seedha array ho
-      const raw = Array.isArray(res.data)
+      const raw = Array.isArray(res?.data)
         ? res.data
         : Array.isArray(res)
           ? res
@@ -111,10 +120,25 @@ export default function PrivacyPolicy() {
       }
 
       const list: ApiPolicy[] = raw;
+      const mapped = list
+        .filter((p) => (p.type ?? "").toLowerCase() === POLICY_TYPE)
+        .map(toPolicy);
+
+      const trimmedSearch = debouncedSearch.trim().toLowerCase();
+      const filtered = trimmedSearch
+        ? mapped.filter(
+            (item) =>
+              item.title.toLowerCase().includes(trimmedSearch) ||
+              item.description.toLowerCase().includes(trimmedSearch),
+          )
+        : mapped;
+
+      const computedPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+      const safePage = Math.max(1, Math.min(page, computedPages));
+
+      setTotalPages(computedPages);
       setPolicies(
-        list
-          .filter((p) => (p.type ?? "").toLowerCase() === POLICY_TYPE)
-          .map(toPolicy),
+        filtered.slice((safePage - 1) * pageSize, safePage * pageSize),
       );
       setErrorMsg("");
     } catch (err) {
@@ -131,24 +155,8 @@ export default function PrivacyPolicy() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page, debouncedSearch]);
   // ------------------------------------------
-
-  const filteredPolicies = policies.filter(
-    (policy) =>
-      policy.title.toLowerCase().includes(search.toLowerCase()) ||
-      policy.description.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  // ---------- Pagination ----------
-  const totalPages = Math.max(1, Math.ceil(filteredPolicies.length / pageSize));
-  const currentPage = Math.max(1, Math.min(page, totalPages));
-
-  const visiblePolicies = filteredPolicies.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
-  // --------------------------------
 
   const resetForm = () => {
     setEditingId(null);
@@ -231,6 +239,7 @@ export default function PrivacyPolicy() {
     setShowSuccess(false);
     resetForm();
     setSearch("");
+    setDebouncedSearch("");
     setPage(1);
     setView("list");
   };
@@ -287,10 +296,7 @@ export default function PrivacyPolicy() {
                 <TextInput
                   placeholder="Search"
                   value={search}
-                  onChange={(event) => {
-                    setSearch(event.currentTarget.value);
-                    setPage(1);
-                  }}
+                  onChange={(event) => setSearch(event.currentTarget.value)}
                   leftSection={<MdSearch size={17} color="#E0E0E0" />}
                   styles={{
                     input: {
@@ -342,7 +348,7 @@ export default function PrivacyPolicy() {
                 scrollbarWidth: "none",
               }}
             >
-              {visiblePolicies.map((policy) => (
+              {policies.map((policy) => (
                 <Box
                   key={policy.id}
                   style={{
@@ -411,7 +417,7 @@ export default function PrivacyPolicy() {
                 </Text>
               )}
 
-              {!loading && visiblePolicies.length === 0 && (
+              {!loading && policies.length === 0 && (
                 <Text ta="center" c="#B8B4B0" size="sm" py="xl">
                   No policies found.
                 </Text>
@@ -419,11 +425,7 @@ export default function PrivacyPolicy() {
             </Stack>
           </Box>
 
-          <Pagination
-            page={currentPage}
-            totalPages={totalPages}
-            onChange={setPage}
-          />
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
         </>
       )}
 

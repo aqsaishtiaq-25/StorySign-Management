@@ -20,10 +20,47 @@ export type ApiUser = {
   lastName: string;
   role: string;
   isActive: boolean;
+  isSuspended?: boolean;
+  plan?: string | null;
   avatarUrl: string | null;
   bio: string | null;
   createdAt: string;
 };
+
+export type UserQueryParams = {
+  page?: number;
+  limit?: number;
+  role?: "READER" | "AUTHOR" | string;
+  search?: string;
+  isActive?: boolean;
+  isSuspended?: boolean;
+  plan?: string;
+  minUploadedBooksCount?: number;
+  maxUploadedBooksCount?: number;
+  minTotalSpent?: number;
+  maxTotalSpent?: number;
+  bookTitle?: string;
+  minSignedBooks?: number;
+  maxSignedBooks?: number;
+  minPendingRequests?: number;
+  maxPendingRequests?: number;
+  createdFrom?: string;
+  createdTo?: string;
+  sortBy?: string;
+  sortOrder?: "ASC" | "DESC";
+};
+
+function buildQueryString(params: Record<string, unknown>): string {
+  const sp = new URLSearchParams();
+  Object.entries(params).forEach(([key, val]) => {
+    if (val === undefined || val === null) return;
+    const str = String(val).trim();
+    if (str === "") return;
+    sp.set(key, str);
+  });
+  const qs = sp.toString();
+  return qs ? `?${qs}` : "";
+}
 
 async function handle(res: Response, fallback: string) {
   const data = await res.json().catch(() => ({}));
@@ -125,22 +162,17 @@ export async function updateMyProfile(data: {
 }
 
 // ---------- Profile photo ----------
-// Upload: PATCH /users/my (form-data) -- file ki key ka naam neeche likha hai.
-// Photo dekhna: GET /users/<id>/avatar
 export const AVATAR_FIELD = "avatar";
 export const AVATAR_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 export const AVATAR_MAX_MB = 2;
 
-// Backend poora link (https://...) de to waisa hi rahega; sirf path de to BASE_URL lag jata hai
 export function resolveAvatarUrl(url?: string | null): string | null {
   if (!url) return null;
   if (/^(https?:|data:|blob:)/i.test(url)) return url;
-  if (url.startsWith(`${BASE_URL}/`)) return url; // pehle se /api se shuru hai
+  if (url.startsWith(`${BASE_URL}/`)) return url;
   return `${BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
-// Avatar ko token ke saath mangwa kar blob link banata hai, kyun ke <img> token nahi bhejta
-// (avatar endpoint login mange to bhi chalta hai). Bahar ka poora link seedha use hota hai.
 export async function loadAvatarSrc(url?: string | null): Promise<string | null> {
   const resolved = resolveAvatarUrl(url);
   if (!resolved) return null;
@@ -164,22 +196,18 @@ export async function loadAvatarSrc(url?: string | null): Promise<string | null>
   });
 }
 
-
-
 export async function updateMyAvatar(file: File) {
   const token = localStorage.getItem("token");
   const form = new FormData();
   form.append(AVATAR_FIELD, file);
   const res = await request(`${BASE_URL}/users/my`, {
     method: "PATCH",
-    // Content-Type khud mat lagayein: browser multipart ki boundary khud banata hai
     headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
   return handle(res, "Could not upload photo");
 }
 
-// ZAROORI: Postman ma "Update Password" ka URL dekh kar neeche wali line match karein
 const UPDATE_PASSWORD_URL = `${BASE_URL}/users/my/password`;
 
 export async function updatePassword(data: {
@@ -195,11 +223,42 @@ export async function updatePassword(data: {
   return handle(res, "Could not update password");
 }
 
-// ---------- Author Management ----------
+// ---------- Users / Author Management ----------
 
-export async function getUsers(page = 1, limit = 100, search = "") {
-  const q = search ? `&search=${encodeURIComponent(search)}` : "";
-  const res = await request(`${BASE_URL}/users?page=${page}&limit=${limit}${q}`, {
+export async function getUsers(
+  pageOrParams: number | UserQueryParams = 1,
+  limit = 100,
+  search = "",
+) {
+  const params: UserQueryParams =
+    typeof pageOrParams === "object"
+      ? pageOrParams
+      : { page: pageOrParams, limit, search };
+
+  const qs = buildQueryString({
+    page: params.page ?? 1,
+    limit: params.limit ?? 100,
+    role: params.role,
+    search: params.search,
+    isActive: params.isActive,
+    isSuspended: params.isSuspended,
+    plan: params.plan,
+    minUploadedBooksCount: params.minUploadedBooksCount,
+    maxUploadedBooksCount: params.maxUploadedBooksCount,
+    minTotalSpent: params.minTotalSpent,
+    maxTotalSpent: params.maxTotalSpent,
+    bookTitle: params.bookTitle,
+    minSignedBooks: params.minSignedBooks,
+    maxSignedBooks: params.maxSignedBooks,
+    minPendingRequests: params.minPendingRequests,
+    maxPendingRequests: params.maxPendingRequests,
+    createdFrom: params.createdFrom,
+    createdTo: params.createdTo,
+    sortBy: params.sortBy,
+    sortOrder: params.sortOrder,
+  });
+
+  const res = await request(`${BASE_URL}/users${qs}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load users");
@@ -213,9 +272,6 @@ export async function getUserById(id: string) {
 }
 
 // ---------- Forgot password flow ----------
-// 1) forgotPassword -> email par OTP aata hai
-// 2) verifyOtp      -> { message, resetToken } wapas aata hai
-// 3) resetPassword  -> resetToken ke saath naya password
 
 export async function forgotPassword(email: string) {
   const res = await request(`${BASE_URL}/auth/forgot-password`, {
@@ -257,6 +313,19 @@ export type EbookStats = {
   rejected: number;
 };
 
+export type EbookQueryParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  isPublished?: boolean;
+  isSigned?: boolean;
+  readerId?: string;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: string;
+  order?: "ASC" | "DESC";
+};
+
 export async function getEbookStats(): Promise<EbookStats> {
   const res = await request(`${BASE_URL}/ebooks/stats`, {
     headers: authHeaders(),
@@ -264,8 +333,29 @@ export async function getEbookStats(): Promise<EbookStats> {
   return handle(res, "Could not load ebook stats");
 }
 
-export async function getEbooks(page = 1, limit = 100) {
-  const res = await request(`${BASE_URL}/ebooks?page=${page}&limit=${limit}`, {
+export async function getEbooks(
+  pageOrParams: number | EbookQueryParams = 1,
+  limit = 100,
+) {
+  const params: EbookQueryParams =
+    typeof pageOrParams === "object"
+      ? pageOrParams
+      : { page: pageOrParams, limit };
+
+  const qs = buildQueryString({
+    page: params.page ?? 1,
+    limit: params.limit ?? 100,
+    search: params.search,
+    isPublished: params.isPublished,
+    isSigned: params.isSigned,
+    readerId: params.readerId,
+    startDate: params.startDate,
+    endDate: params.endDate,
+    sortBy: params.sortBy,
+    order: params.order,
+  });
+
+  const res = await request(`${BASE_URL}/ebooks${qs}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load ebooks");
@@ -290,11 +380,42 @@ export async function deleteEbook(id: string) {
 
 export type AutographStats = Record<string, number | undefined>;
 
-export async function getAutographRequests(page = 1, limit = 5) {
-  const res = await request(
-    `${BASE_URL}/autograph-requests?page=${page}&limit=${limit}`,
-    { headers: authHeaders() },
-  );
+export type AutographRequestQueryParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  authorId?: string;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: string;
+  order?: "ASC" | "DESC";
+};
+
+export async function getAutographRequests(
+  pageOrParams: number | AutographRequestQueryParams = 1,
+  limit = 5,
+) {
+  const params: AutographRequestQueryParams =
+    typeof pageOrParams === "object"
+      ? pageOrParams
+      : { page: pageOrParams, limit };
+
+  const qs = buildQueryString({
+    page: params.page ?? 1,
+    limit: params.limit ?? 5,
+    search: params.search,
+    status: params.status,
+    authorId: params.authorId,
+    startDate: params.startDate,
+    endDate: params.endDate,
+    sortBy: params.sortBy,
+    order: params.order,
+  });
+
+  const res = await request(`${BASE_URL}/autograph-requests${qs}`, {
+    headers: authHeaders(),
+  });
   return handle(res, "Could not load autograph requests");
 }
 
@@ -326,19 +447,44 @@ const FEE_CURRENT_URL = `${BASE_URL}/autograph-fee`;
 const FEE_UPDATE_URL = `${BASE_URL}/autograph-fee`;
 const FEE_HISTORY_URL = `${BASE_URL}/autograph-fee/history`;
 
+export type FeeHistoryQueryParams = {
+  page?: number;
+  limit?: number;
+  updatedBy?: string;
+  startDate?: string;
+  endDate?: string;
+  amount?: number | string;
+};
+
 export async function getCurrentAutographFee(): Promise<{ amount: number }> {
   const res = await request(FEE_CURRENT_URL, { headers: authHeaders() });
   return handle(res, "Could not load autograph fee");
 }
 
-export async function getAutographFeeHistory(page = 1, limit = 5) {
-  const res = await request(`${FEE_HISTORY_URL}?page=${page}&limit=${limit}`, {
+export async function getAutographFeeHistory(
+  pageOrParams: number | FeeHistoryQueryParams = 1,
+  limit = 5,
+) {
+  const params: FeeHistoryQueryParams =
+    typeof pageOrParams === "object"
+      ? pageOrParams
+      : { page: pageOrParams, limit };
+
+  const qs = buildQueryString({
+    page: params.page ?? 1,
+    limit: params.limit ?? 5,
+    updatedBy: params.updatedBy,
+    startDate: params.startDate,
+    endDate: params.endDate,
+    amount: params.amount,
+  });
+
+  const res = await request(`${FEE_HISTORY_URL}${qs}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load autograph fee history");
 }
 
-// Body ki field ka naam Postman ke "Update Autograph fee" ki body se match karein
 export async function updateAutographFee(amount: number) {
   const res = await request(FEE_UPDATE_URL, {
     method: "PATCH",
@@ -363,7 +509,6 @@ export async function getDashboardUserGrowth(months = 6) {
   return handle(res, "Could not load user growth");
 }
 
-// months na do to backend apna default (3 mahine) deta hai
 export async function getDashboardRevenueAnalytics(months?: number) {
   const q = months ? `?months=${months}` : "";
   const res = await request(`${DASH_BASE}/revenue-analytics${q}`, {
@@ -381,8 +526,6 @@ export async function getMonthlyAutographRequests(months = 6) {
   return handle(res, "Could not load autograph requests");
 }
 
-// ZAROORI: Postman ma "Top Authors list with highest autograph..." ka URL dekh kar
-// neeche wali line match karein ({{baseUrl}} ke baad wala hissa)
 const TOP_AUTHORS_URL = `${DASH_BASE}/top-authors`;
 
 export async function getTopAuthors() {
@@ -405,7 +548,7 @@ export type ApiPolicy = {
 export async function getPolicies(page = 1, limit = 100) {
   const res = await request(`${BASE_URL}/policies?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
-    cache: "no-store", // purana (cached) jawab dobara na aaye
+    cache: "no-store",
   });
   return handle(res, "Could not load policies");
 }
@@ -471,7 +614,7 @@ export type ApiFaq = {
 export async function getFaqs(page = 1, limit = 100) {
   const res = await request(`${BASE_URL}/faqs?page=${page}&limit=${limit}`, {
     headers: authHeaders(),
-    cache: "no-store", // purana (cached) jawab dobara na aaye
+    cache: "no-store",
   });
   return handle(res, "Could not load FAQs");
 }
@@ -528,8 +671,38 @@ export async function deleteFaq(id: string) {
 const NOTIF_LIST_URL = `${BASE_URL}/notifications`;
 const NOTIF_SEND_URL = `${BASE_URL}/notifications/broadcast`;
 
-export async function getNotifications(page = 1, limit = 7) {
-  const res = await request(`${NOTIF_LIST_URL}?page=${page}&limit=${limit}`, {
+export type NotificationQueryParams = {
+  page?: number;
+  limit?: number;
+  isRead?: boolean;
+  title?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  sortBy?: string;
+  sortOrder?: "ASC" | "DESC";
+};
+
+export async function getNotifications(
+  pageOrParams: number | NotificationQueryParams = 1,
+  limit = 7,
+) {
+  const params: NotificationQueryParams =
+    typeof pageOrParams === "object"
+      ? pageOrParams
+      : { page: pageOrParams, limit };
+
+  const qs = buildQueryString({
+    page: params.page ?? 1,
+    limit: params.limit ?? 7,
+    isRead: params.isRead,
+    title: params.title,
+    createdFrom: params.createdFrom,
+    createdTo: params.createdTo,
+    sortBy: params.sortBy,
+    sortOrder: params.sortOrder,
+  });
+
+  const res = await request(`${NOTIF_LIST_URL}${qs}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load notifications");
@@ -559,13 +732,37 @@ export type ReaderStats = {
   suspendedReaders?: number;
 };
 
-export async function getReaders(page = 1, limit = 5, search = "") {
-  // role=READER pehle, phir page/limit/search -- sab '&' se jore hain (sirf ek '?')
-  const q = search ? `&search=${encodeURIComponent(search)}` : "";
-  const res = await request(
-    `${READERS_URL}?role=READER&page=${page}&limit=${limit}${q}`,
-    { headers: authHeaders() },
-  );
+export async function getReaders(
+  pageOrParams: number | Omit<UserQueryParams, "role"> = 1,
+  limit = 5,
+  search = "",
+) {
+  const params: Omit<UserQueryParams, "role"> =
+    typeof pageOrParams === "object"
+      ? pageOrParams
+      : { page: pageOrParams, limit, search };
+
+  const qs = buildQueryString({
+    page: params.page ?? 1,
+    limit: params.limit ?? 5,
+    role: "READER",
+    search: params.search,
+    isActive: params.isActive,
+    isSuspended: params.isSuspended,
+    minUploadedBooksCount: params.minUploadedBooksCount,
+    maxUploadedBooksCount: params.maxUploadedBooksCount,
+    minTotalSpent: params.minTotalSpent,
+    maxTotalSpent: params.maxTotalSpent,
+    bookTitle: params.bookTitle,
+    createdFrom: params.createdFrom,
+    createdTo: params.createdTo,
+    sortBy: params.sortBy,
+    sortOrder: params.sortOrder,
+  });
+
+  const res = await request(`${READERS_URL}${qs}`, {
+    headers: authHeaders(),
+  });
   return handle(res, "Could not load readers");
 }
 
@@ -574,7 +771,6 @@ export async function getReaderStats(): Promise<ReaderStats> {
   return handle(res, "Could not load reader stats");
 }
 
-// Suspend / unsuspend / activate / deactivate ek hi function se
 export type UserAction = "suspend" | "unsuspend" | "activate" | "deactivate";
 
 export async function changeUserStatus(
@@ -591,7 +787,6 @@ export async function changeUserStatus(
 }
 
 // ---------- Subscription plans & subscriptions ----------
-// ZAROORI: neeche ke do URL Postman ki requests ke URL se milayein
 const PLANS_URL = `${BASE_URL}/subscription-plans`;
 const SUBSCRIPTIONS_URL = `${BASE_URL}/subscriptions`;
 
@@ -602,6 +797,15 @@ export type ApiPlan = {
   planCharges: number;
   features: string[];
   isActive: boolean;
+};
+
+export type PlanQueryParams = {
+  page?: number;
+  limit?: number;
+  isActive?: boolean;
+  search?: string;
+  sortBy?: string;
+  sortOrder?: "ASC" | "DESC";
 };
 
 export type ApiSubscription = {
@@ -615,8 +819,39 @@ export type ApiSubscription = {
   plan?: { name?: string; planType?: string; planCharges?: number };
 };
 
-export async function getPlans(page = 1, limit = 100) {
-  const res = await request(`${PLANS_URL}?page=${page}&limit=${limit}`, {
+export type SubscriptionQueryParams = {
+  page?: number;
+  limit?: number;
+  status?: string;
+  planName?: string;
+  planType?: string;
+  minBilling?: number;
+  maxBilling?: number;
+  startedFrom?: string;
+  startedTo?: string;
+  sortBy?: string;
+  sortOrder?: "ASC" | "DESC";
+};
+
+export async function getPlans(
+  pageOrParams: number | PlanQueryParams = 1,
+  limit = 100,
+) {
+  const params: PlanQueryParams =
+    typeof pageOrParams === "object"
+      ? pageOrParams
+      : { page: pageOrParams, limit };
+
+  const qs = buildQueryString({
+    page: params.page ?? 1,
+    limit: params.limit ?? 100,
+    isActive: params.isActive,
+    search: params.search,
+    sortBy: params.sortBy,
+    sortOrder: params.sortOrder,
+  });
+
+  const res = await request(`${PLANS_URL}${qs}`, {
     headers: authHeaders(),
     cache: "no-store",
   });
@@ -664,18 +899,36 @@ export async function deletePlan(id: string) {
   return handle(res, "Could not delete plan");
 }
 
-export async function getSubscriptions(page = 1, limit = 100) {
-  const res = await request(`${SUBSCRIPTIONS_URL}?page=${page}&limit=${limit}`, {
+export async function getSubscriptions(
+  pageOrParams: number | SubscriptionQueryParams = 1,
+  limit = 100,
+) {
+  const params: SubscriptionQueryParams =
+    typeof pageOrParams === "object"
+      ? pageOrParams
+      : { page: pageOrParams, limit };
+
+  const qs = buildQueryString({
+    page: params.page ?? 1,
+    limit: params.limit ?? 100,
+    status: params.status,
+    planName: params.planName,
+    planType: params.planType,
+    minBilling: params.minBilling,
+    maxBilling: params.maxBilling,
+    startedFrom: params.startedFrom,
+    startedTo: params.startedTo,
+    sortBy: params.sortBy,
+    sortOrder: params.sortOrder,
+  });
+
+  const res = await request(`${SUBSCRIPTIONS_URL}${qs}`, {
     headers: authHeaders(),
     cache: "no-store",
   });
   return handle(res, "Could not load subscriptions");
 }
 
-// ---------- Admin: subscription actions ----------
-// ZAROORI: Postman mein "Cancle subscription" ka URL dekhein. Agar woh
-// {{baseUrl}}/subscriptions/<id>/cancel nahi hai, to neeche wali line mein
-// "/cancel" ko us ke mutabiq badal dein.
 export async function cancelSubscription(id: string) {
   const res = await request(`${SUBSCRIPTIONS_URL}/${id}/cancel`, {
     method: "PATCH",
@@ -692,9 +945,6 @@ export async function deleteSubscription(id: string) {
   return handle(res, "Could not delete subscription");
 }
 
-// ---------- Author: own subscription ----------
-// ZAROORI: neeche ke do URL Postman se milayein
-// ("See own subscription" aur "Cancel my subscription")
 const MY_SUBSCRIPTION_URL = `${SUBSCRIPTIONS_URL}/my`;
 const CANCEL_MY_SUBSCRIPTION_URL = `${SUBSCRIPTIONS_URL}/my/cancel`;
 
@@ -707,7 +957,6 @@ export async function subscribeToPlan(planId: string) {
   return handle(res, "Could not subscribe to this plan");
 }
 
-// Active subscription na ho to null wapas deta hai (error nahi)
 export async function getMySubscription(): Promise<ApiSubscription | null> {
   const res = await request(MY_SUBSCRIPTION_URL, {
     headers: authHeaders(),
@@ -717,8 +966,6 @@ export async function getMySubscription(): Promise<ApiSubscription | null> {
   if (res.status === 404) {
     const body = await res.json().catch(() => ({}));
     const msg = String(body?.message ?? "");
-    // Sirf "Active subscription not found" ko khali maanein.
-    // Galat URL ka 404 chhupna nahi chahiye.
     if (msg.toLowerCase().includes("active subscription")) return null;
     throw new Error(msg || "Could not load your subscription");
   }
@@ -747,7 +994,6 @@ export const isSignedRequest = (r: any): boolean =>
   !!r?.signedEbookUrl ||
   ["signed", "delivered", "completed"].includes(requestStatus(r));
 
-// Saari requests 10-10 ki pages mein mangwata hai (limit ka masla nahi aata)
 export async function getAllAutographRequests(): Promise<any[]> {
   const all: any[] = [];
   let page = 1;
@@ -769,7 +1015,6 @@ export async function getAllAutographRequests(): Promise<any[]> {
 }
 
 // ---------- Author actions on an autograph request ----------
-// ZAROORI: neeche ke URL Postman ki requests se milayein.
 const DEFAULT_AUTHOR_MESSAGE = "I have signed your ebook. Hope you like it.";
 
 export async function acceptAutographRequest(id: string) {
@@ -804,7 +1049,6 @@ export async function signAutographRequest(
   return handle(res, "Could not sign the request");
 }
 
-// Maujooda autograph fee ke saath sign karta hai
 export async function signAutographRequestDefault(
   id: string,
   fileUrl: string,
@@ -825,7 +1069,6 @@ export async function signAutographRequestDefault(
   });
 }
 
-// Unsigned ka endpoint mujhe nahi pata: Postman se isay milayein
 export async function unsignAutographRequest(id: string) {
   const res = await request(`${BASE_URL}/autograph-requests/${id}/unsigned`, {
     method: "PATCH",
@@ -856,8 +1099,40 @@ export type ApiSupportQuery = {
   updatedAt: string;
 };
 
-export async function getSupportQueries(page = 1, limit = 5) {
-  const res = await request(`${SQ_URL}?page=${page}&limit=${limit}`, {
+export type SupportQueryParams = {
+  page?: number;
+  limit?: number;
+  search?: string;
+  userName?: string;
+  role?: string;
+  subject?: string;
+  status?: string;
+  sortBy?: string;
+  order?: "ASC" | "DESC";
+};
+
+export async function getSupportQueries(
+  pageOrParams: number | SupportQueryParams = 1,
+  limit = 5,
+) {
+  const params: SupportQueryParams =
+    typeof pageOrParams === "object"
+      ? pageOrParams
+      : { page: pageOrParams, limit };
+
+  const qs = buildQueryString({
+    page: params.page ?? 1,
+    limit: params.limit ?? 5,
+    search: params.search,
+    userName: params.userName,
+    role: params.role,
+    subject: params.subject,
+    status: params.status,
+    sortBy: params.sortBy,
+    order: params.order,
+  });
+
+  const res = await request(`${SQ_URL}${qs}`, {
     headers: authHeaders(),
   });
   return handle(res, "Could not load support queries");
@@ -904,7 +1179,6 @@ export async function deleteSupportQuery(id: string) {
   });
   return handle(res, "Could not delete support query");
 }
-
 
 ///firebase
 export async function registerDeviceToken(deviceToken: string) {
