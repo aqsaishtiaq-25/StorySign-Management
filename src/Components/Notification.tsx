@@ -16,7 +16,12 @@ import { MdOutlineVerified } from "react-icons/md";
 import ReaderLayout from "./ReaderLayout";
 import Pagination from "./Pagination"; // path apne folder ke hisaab se theek kar lein
 import { useLayoutSearch } from "./SearchContext";
-import { getMyProfile, getNotifications, sendNotification } from "../api";
+import {
+  getMyProfile,
+  getNotifications,
+  sendNotification,
+  type NotificationQueryParams,
+} from "../api";
 
 /* ---------------- colors ---------------- */
 const C = {
@@ -40,10 +45,6 @@ type NotificationItem = {
 
 /** ek page par kitni notifications dikhani hain (design mein 7) */
 const PAGE_SIZE = 7;
-
-/** Search karte waqt kitni notifications ek saath mangwa kar filter karni hain.
- *  Agar backend "limit" ke upar error de to is ko kam kar dein (jaise 50). */
-const SEARCH_LIMIT = 100;
 
 /** Dropdown ke options -> backend ki recipientType */
 const RECIPIENTS = [
@@ -148,17 +149,23 @@ function NotificationList({
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   // Top bar ki search bhi chalti hai; page ki apni box mein likha ho to wo pehle
   const layoutSearch = useLayoutSearch();
-  const query = (search.trim() || layoutSearch).toLowerCase();
+  const rawQuery = search.trim() || layoutSearch.trim();
 
-  // Search badle to page 1 par wapas
+  // Search input ke liye thora delay taake har letter par extra API call na ho
   useEffect(() => {
-    setPage(1);
-  }, [query]);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(rawQuery);
+      setPage(1);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [rawQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,28 +175,22 @@ function NotificationList({
         setLoading(true);
         setError("");
 
-        if (query) {
-          // Search: zyada notifications mangwa kar yahin filter karte hain,
-          // phir 7-7 ke pages mein bantte hain
-          const res: any = await getNotifications(1, SEARCH_LIMIT);
-          const matches = pickList(res)
-            .map(toItem)
-            .filter((n) =>
-              `${n.title} ${n.message} ${n.date}`.toLowerCase().includes(query),
-            );
+        const params: NotificationQueryParams = {
+          page,
+          limit: PAGE_SIZE,
+          sortBy: "createdAt",
+          sortOrder: "DESC",
+        };
 
-          if (!cancelled) {
-            setTotalPages(Math.max(1, Math.ceil(matches.length / PAGE_SIZE)));
-            setItems(matches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE));
-          }
-        } else {
-          // Normal: backend ki pagination
-          const res: any = await getNotifications(page, PAGE_SIZE);
+        if (debouncedSearch) {
+          params.title = debouncedSearch;
+        }
 
-          if (!cancelled) {
-            setItems(pickList(res).map(toItem));
-            setTotalPages(Math.max(1, res?.pagination?.totalPages ?? 1));
-          }
+        const res: any = await getNotifications(params);
+
+        if (!cancelled) {
+          setItems(pickList(res).map(toItem));
+          setTotalPages(Math.max(1, res?.pagination?.totalPages ?? 1));
         }
       } catch (err) {
         if (!cancelled) {
@@ -204,7 +205,7 @@ function NotificationList({
     return () => {
       cancelled = true;
     };
-  }, [page, query]);
+  }, [page, debouncedSearch]);
 
   return (
     <>

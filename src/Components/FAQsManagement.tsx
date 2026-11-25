@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Box,
   Flex,
@@ -56,11 +56,13 @@ export default function FAQsManagement() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   const [faqs, setFaqs] = useState<FAQ[]>([]);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -91,58 +93,79 @@ export default function FAQsManagement() {
   }, []);
   // ----------------------------------------------------
 
+  // Search input ke liye thora delay taake har letter par extra API call na ho
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
   // ---------- Backend se list lana ----------
-  const loadFaqs = async (isCancelled: () => boolean = () => false) => {
-    try {
-      const res = await getFaqs();
-      if (isCancelled()) return;
+  const loadFaqs = useCallback(
+    async (
+      targetPage = page,
+      targetSearch = debouncedSearch,
+      isCancelled: () => boolean = () => false,
+    ) => {
+      try {
+        setLoading(true);
+        const params: {
+          page: number;
+          limit: number;
+          search?: string;
+          order?: "ASC" | "DESC";
+        } = {
+          page: targetPage,
+          limit: pageSize,
+          order: "DESC",
+        };
 
-      // list "data" mein ho sakti hai, ya seedha array ho
-      const raw = Array.isArray(res.data)
-        ? res.data
-        : Array.isArray(res)
-          ? res
-          : null;
+        if (targetSearch) {
+          params.search = targetSearch;
+        }
 
-      if (!raw) {
-        throw new Error("Could not load the FAQs list.");
+        const res: any = await (getFaqs as any)(params);
+        if (isCancelled()) return;
+
+        // list "data" mein ho sakti hai, ya seedha array ho
+        const raw = Array.isArray(res?.data)
+          ? res.data
+          : Array.isArray(res)
+            ? res
+            : null;
+
+        if (!raw) {
+          throw new Error("Could not load the FAQs list.");
+        }
+
+        const list: ApiFaq[] = raw;
+        setFaqs(list.map(toFaq));
+        setTotalPages(Math.max(1, res?.pagination?.totalPages ?? 1));
+        setErrorMsg("");
+      } catch (err) {
+        if (isCancelled()) return;
+        setErrorMsg((err as Error).message);
+      } finally {
+        if (!isCancelled()) setLoading(false);
       }
-
-      const list: ApiFaq[] = raw;
-      setFaqs(list.map(toFaq).sort((a, b) => a.sortOrder - b.sortOrder));
-      setErrorMsg("");
-    } catch (err) {
-      if (isCancelled()) return;
-      setErrorMsg((err as Error).message);
-    } finally {
-      if (!isCancelled()) setLoading(false);
-    }
-  };
+    },
+    [page, debouncedSearch, pageSize],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    loadFaqs(() => cancelled);
+    loadFaqs(page, debouncedSearch, () => cancelled);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page, debouncedSearch, loadFaqs]);
   // ------------------------------------------
 
-  const filteredFAQs = faqs.filter(
-    (faq) =>
-      faq.question.toLowerCase().includes(search.toLowerCase()) ||
-      faq.answer.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  // ---------- Pagination ----------
-  const totalPages = Math.max(1, Math.ceil(filteredFAQs.length / pageSize));
   const currentPage = Math.max(1, Math.min(page, totalPages));
-
-  const visibleFAQs = filteredFAQs.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
-  // --------------------------------
+  const visibleFAQs = faqs;
 
   const resetForm = () => {
     setEditingId(null);
@@ -179,7 +202,7 @@ export default function FAQsManagement() {
     try {
       setErrorMsg("");
       await deleteFaqApi(id);
-      await loadFaqs();
+      await loadFaqs(currentPage, debouncedSearch);
     } catch (err) {
       setErrorMsg((err as Error).message);
     }
@@ -219,7 +242,7 @@ export default function FAQsManagement() {
         });
       }
 
-      await loadFaqs();
+      await loadFaqs(currentPage, debouncedSearch);
       setShowSuccess(true);
     } catch (err) {
       setErrorMsg((err as Error).message);
@@ -232,6 +255,7 @@ export default function FAQsManagement() {
     setShowSuccess(false);
     resetForm();
     setSearch("");
+    setDebouncedSearch("");
     setPage(1);
     setView("list");
   };
@@ -291,10 +315,7 @@ export default function FAQsManagement() {
                 <TextInput
                   placeholder="Search"
                   value={search}
-                  onChange={(event) => {
-                    setSearch(event.currentTarget.value);
-                    setPage(1);
-                  }}
+                  onChange={(event) => setSearch(event.currentTarget.value)}
                   leftSection={<MdSearch size={17} color="#E0E0E0" />}
                   styles={{
                     input: {

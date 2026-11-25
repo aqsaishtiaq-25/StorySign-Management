@@ -13,6 +13,7 @@ import {
   Table,
   ActionIcon,
   Loader,
+  Menu,
 } from "@mantine/core";
 
 import { MdSearch } from "react-icons/md";
@@ -37,9 +38,11 @@ import {
   getReaders,
   getReaderStats,
   type ReaderStats,
+  type UserQueryParams,
 } from "../api";
 
 type ReaderStatus = "Active" | "Inactive" | "Suspended";
+type StatusFilterOption = "ALL" | "ACTIVE" | "INACTIVE" | "SUSPENDED";
 
 interface ReaderRow {
   id: string;
@@ -125,6 +128,8 @@ export default function ReaderManagement() {
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilterOption>("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
@@ -143,6 +148,16 @@ export default function ReaderManagement() {
   const accentCardBg = "#FFE8B6";
   const numberColor = "#2A1005";
 
+  // Search input ke liye thora delay taake har letter par extra API call na ho
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
   // Cards: shuru mein aur har action ke baad
   useEffect(() => {
     getReaderStats()
@@ -152,7 +167,7 @@ export default function ReaderManagement() {
       );
   }, [reloadKey]);
 
-  // Readers: har page change par aur har action ke baad
+  // Readers: page, search, filter ya action ke baad server-side fetch
   useEffect(() => {
     let cancelled = false;
 
@@ -161,7 +176,26 @@ export default function ReaderManagement() {
         setLoading(true);
         setError("");
 
-        const res: any = await getReaders(page, PAGE_SIZE);
+        const params: Omit<UserQueryParams, "role"> = {
+          page,
+          limit: PAGE_SIZE,
+        };
+
+        if (debouncedSearch) {
+          params.search = debouncedSearch;
+        }
+
+        if (statusFilter === "ACTIVE") {
+          params.isActive = true;
+          params.isSuspended = false;
+        } else if (statusFilter === "INACTIVE") {
+          params.isActive = false;
+          params.isSuspended = false;
+        } else if (statusFilter === "SUSPENDED") {
+          params.isSuspended = true;
+        }
+
+        const res: any = await getReaders(params);
         const list: any[] = Array.isArray(res)
           ? res
           : (res?.data ?? res?.items ?? res?.users ?? []);
@@ -183,7 +217,7 @@ export default function ReaderManagement() {
     return () => {
       cancelled = true;
     };
-  }, [page, reloadKey]);
+  }, [page, debouncedSearch, statusFilter, reloadKey]);
 
   const statCards = [
     {
@@ -208,15 +242,30 @@ export default function ReaderManagement() {
     },
   ];
 
-  // Search sirf current page ki rows par chalta hai
-  const query = search.trim().toLowerCase();
-  const visible = readers.filter(
-    (r) =>
-      !query ||
-      `${r.shortId} ${r.name} ${r.email} ${r.book} ${r.status}`
-        .toLowerCase()
-        .includes(query),
-  );
+  const handleFilterChange = (nextFilter: StatusFilterOption) => {
+    setStatusFilter(nextFilter);
+    setPage(1);
+  };
+
+  const isFilterActive = statusFilter !== "ALL";
+
+  const filterLabel =
+    statusFilter === "ALL"
+      ? "Filter"
+      : statusFilter === "ACTIVE"
+        ? "Active"
+        : statusFilter === "INACTIVE"
+          ? "Inactive"
+          : "Suspended";
+
+  const dropdownItemStyle = (active: boolean) => ({
+    backgroundColor: active ? "#4A2C16" : "transparent",
+    color: active ? accentCardBg : "#FFFFFF",
+    fontWeight: active ? 600 : 400,
+    fontSize: "13px",
+    borderRadius: "8px",
+    padding: "8px 12px",
+  });
 
   const getStatusStyle = (status: string) => {
     if (status === "Active") {
@@ -400,25 +449,71 @@ export default function ReaderManagement() {
                 }}
               />
 
-              <UnstyledButton>
-                <Box
-                  px={16}
+              <Menu shadow="md" width={155} position="bottom-end">
+                <Menu.Target>
+                  <UnstyledButton>
+                    <Box
+                      px={16}
+                      style={{
+                        height: 36,
+                        borderRadius: "20px",
+                        backgroundColor: isFilterActive ? "#6E3614" : "#383838",
+                        border: "none",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 7,
+                      }}
+                    >
+                      <FiFilter
+                        size={15}
+                        color={isFilterActive ? "#FFFFFF" : "#E0E0E0"}
+                      />
+
+                      <Text
+                        size="12px"
+                        fw={isFilterActive ? 600 : 400}
+                        c={isFilterActive ? "#FFFFFF" : "#E0E0E0"}
+                      >
+                        {filterLabel}
+                      </Text>
+                    </Box>
+                  </UnstyledButton>
+                </Menu.Target>
+
+                <Menu.Dropdown
                   style={{
-                    height: 36,
-                    borderRadius: "20px",
-                    backgroundColor: "#383838",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
+                    backgroundColor: "#222020",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: "12px",
+                    padding: "6px",
                   }}
                 >
-                  <FiFilter size={15} color="#E0E0E0" />
-
-                  <Text size="12px" c="#E0E0E0">
-                    Filter
-                  </Text>
-                </Box>
-              </UnstyledButton>
+                  <Menu.Item
+                    onClick={() => handleFilterChange("ALL")}
+                    style={dropdownItemStyle(statusFilter === "ALL")}
+                  >
+                    All
+                  </Menu.Item>
+                  <Menu.Item
+                    onClick={() => handleFilterChange("ACTIVE")}
+                    style={dropdownItemStyle(statusFilter === "ACTIVE")}
+                  >
+                    Active
+                  </Menu.Item>
+                  <Menu.Item
+                    onClick={() => handleFilterChange("INACTIVE")}
+                    style={dropdownItemStyle(statusFilter === "INACTIVE")}
+                  >
+                    Inactive
+                  </Menu.Item>
+                  <Menu.Item
+                    onClick={() => handleFilterChange("SUSPENDED")}
+                    style={dropdownItemStyle(statusFilter === "SUSPENDED")}
+                  >
+                    Suspended
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
             </Group>
           </Flex>
 
@@ -474,7 +569,7 @@ export default function ReaderManagement() {
                 </Table.Thead>
 
                 <Table.Tbody>
-                  {visible.map((reader) => {
+                  {readers.map((reader) => {
                     const canActivate = reader.status !== "Active";
                     const canDeactivate = reader.status === "Active";
                     const canSuspend = reader.status !== "Suspended";
@@ -608,7 +703,7 @@ export default function ReaderManagement() {
               </Table>
             )}
 
-            {!loading && !error && visible.length === 0 && (
+            {!loading && !error && readers.length === 0 && (
               <Text ta="center" c="#B8B4B0" size="sm" py="xl">
                 No readers found.
               </Text>
