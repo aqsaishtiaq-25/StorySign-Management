@@ -226,13 +226,16 @@ export default function RequestDetailView() {
     ? `Request: ${String(request.id).slice(0, 8)}`
     : "Request";
 
-  const actionBtn = {
+  const makeActionBtnStyles = (activeBg: string, disabledBg: string) => ({
     root: {
       fontSize: "13px",
-      opacity: canAct ? 1 : 0.4,
+      backgroundColor: canAct ? activeBg : disabledBg,
+      color: canAct ? "#FFE8B6" : "#C8C2B8",
+      border: "1px solid rgba(255, 232, 182, 0.18)",
+      opacity: canAct ? 1 : 0.78,
       cursor: canAct ? "pointer" : "not-allowed",
     },
-  };
+  });
 
   return (
     <ReaderLayout title={title} activePage="requests">
@@ -396,7 +399,7 @@ export default function RequestDetailView() {
                         disabled={!canAct}
                         loading={busy === "accept"}
                         onClick={handleAccept}
-                        styles={actionBtn}
+                        styles={makeActionBtnStyles("#81401F", "#383432")}
                       >
                         Accept
                       </Button>
@@ -411,7 +414,7 @@ export default function RequestDetailView() {
                         disabled={!canAct}
                         loading={busy === "reject"}
                         onClick={handleReject}
-                        styles={actionBtn}
+                        styles={makeActionBtnStyles("#8A1C1C", "#383432")}
                       >
                         Reject
                       </Button>
