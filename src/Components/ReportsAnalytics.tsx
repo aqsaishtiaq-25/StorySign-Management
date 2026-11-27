@@ -475,11 +475,12 @@ const selectStyles = {
     paddingLeft: 12,
   },
   dropdown: {
-    backgroundColor: "#383838",
-    border: "1px solid #45413B",
+    backgroundColor: "#FFFFFF",
+    border: "1px solid #E0E0E0",
+    borderRadius: 8,
   },
   option: {
-    color: "#FFFFFF",
+    color: "#211E1E",
     fontSize: 11,
   },
 };
