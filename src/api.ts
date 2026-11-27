@@ -98,8 +98,6 @@ function setPending(n: number) {
   listeners.forEach((l) => l());
 }
 
-// GET fail ho (network / 429 / 5xx) to 2 baar dobara koshish karta hai.
-// POST / PATCH / DELETE kabhi dobara nahi bhejta (double create ka khatra).
 async function request(url: string, init: RequestInit = {}): Promise<Response> {
   const isGet = !init.method || init.method.toUpperCase() === "GET";
   const retries = isGet ? 2 : 0;
@@ -407,6 +405,23 @@ export type AutographRequestQueryParams = {
   sortBy?: string;
   order?: "ASC" | "DESC";
 };
+
+export type CreateAutographRequestPayload = {
+  authorId: string;
+  ebookId: string;
+  readerMessage: string;
+};
+
+export async function createAutographRequest(
+  payload: CreateAutographRequestPayload,
+) {
+  const res = await request(`${BASE_URL}/autograph-requests`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handle(res, "Could not send autograph request");
+}
 
 export async function getAutographRequests(
   pageOrParams: number | AutographRequestQueryParams = 1,

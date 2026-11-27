@@ -8,6 +8,7 @@ import {
   Stack,
   TextInput,
   Textarea,
+  Select,
   Button,
   Avatar,
   SimpleGrid,
@@ -36,6 +37,7 @@ import {
   getEbooks,
   getEbookStats,
   createEbook,
+  createAutographRequest,
   getUserById,
   getMyProfile,
   getUsers,
@@ -54,6 +56,11 @@ interface Book {
   status: BookStatus;
   cover: string;
   avatar: string;
+}
+
+interface AuthorOption {
+  value: string;
+  label: string;
 }
 
 const EBOOK_FILTER_ITEMS: { value: EbookFilterValue; label: string }[] = [
@@ -135,6 +142,44 @@ function toBook(e: any, readers: Record<string, any>): Book {
   };
 }
 
+function extractUsersList(res: any): any[] {
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res?.data?.items)) return res.data.items;
+  if (Array.isArray(res?.data)) return res.data;
+  if (Array.isArray(res?.items)) return res.items;
+  if (Array.isArray(res?.users)) return res.users;
+  return [];
+}
+
+function getUserRole(u: any): string {
+  const raw =
+    u?.role?.name ?? u?.role?.code ?? u?.role ?? u?.userRole ?? u?.type ?? "";
+  return String(raw).toUpperCase();
+}
+
+function toAuthorOptions(users: any[]): AuthorOption[] {
+  return users
+    .filter((u) => {
+      const id = u?.id ?? u?._id ?? u?.userId;
+      if (!id) return false;
+      const explicitRole = getUserRole(u);
+      return explicitRole ? explicitRole.includes("AUTHOR") : true;
+    })
+    .map((u) => {
+      const id = String(u.id ?? u._id ?? u.userId);
+      const fullName =
+        `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() ||
+        u.name ||
+        u.fullName ||
+        u.email ||
+        "Author";
+      return {
+        value: id,
+        label: String(fullName),
+      };
+    });
+}
+
 export default function EbookManagement() {
   const navigate = useNavigate();
 
@@ -147,6 +192,8 @@ export default function EbookManagement() {
   const [view, setView] = useState<"list" | "upload">("list");
 
   const [books, setBooks] = useState<Book[]>([]);
+  const [authors, setAuthors] = useState<AuthorOption[]>([]);
+  const [loadingAuthors, setLoadingAuthors] = useState(false);
   const [stats, setStats] = useState<EbookStats | null>(null);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -159,11 +206,12 @@ export default function EbookManagement() {
   const [page, setPage] = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
 
-  // ---------- Upload form state (Reader) ----------
+  // ---------- Upload + Autograph Request form state (Reader) ----------
   const [title, setTitle] = useState("");
-  const [readerMessage, setReaderMessage] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
   const [fileUrl, setFileUrl] = useState("");
+  const [selectedAuthorId, setSelectedAuthorId] = useState<string | null>(null);
+  const [readerMessage, setReaderMessage] = useState("");
   const [uploading, setUploading] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -189,6 +237,51 @@ export default function EbookManagement() {
       .then(setStats)
       .catch(() => setStats(null));
   }, [reloadKey]);
+
+  // Authors list (role: "AUTHOR") — upload view khulte waqt fresh load hota hai
+  // taake naye authors bhi list mein aa jayein
+  useEffect(() => {
+    if (view !== "upload") return;
+    let cancelled = false;
+
+    async function loadAuthors() {
+      try {
+        setLoadingAuthors(true);
+        let options: AuthorOption[] = [];
+
+        try {
+          const byRoleRes = await getUsers({
+            role: "AUTHOR",
+            page: 1,
+            limit: 100,
+          });
+          options = toAuthorOptions(extractUsersList(byRoleRes));
+        } catch {
+          options = [];
+        }
+
+        if (options.length === 0) {
+          try {
+            const allRes = await getUsers(1, 100);
+            options = toAuthorOptions(extractUsersList(allRes));
+          } catch {
+            options = [];
+          }
+        }
+
+        if (!cancelled) {
+          setAuthors(options);
+        }
+      } finally {
+        if (!cancelled) setLoadingAuthors(false);
+      }
+    }
+
+    loadAuthors();
+    return () => {
+      cancelled = true;
+    };
+  }, [view, reloadKey]);
 
   // Ebooks + current user role
   useEffect(() => {
@@ -227,13 +320,7 @@ export default function EbookManagement() {
         }
 
         const usersRes: any = await safe(() => getUsers(1, 100));
-        const allUsers: any[] = Array.isArray(usersRes)
-          ? usersRes
-          : (usersRes?.data?.items ??
-            usersRes?.data ??
-            usersRes?.items ??
-            usersRes?.users ??
-            []);
+        const allUsers: any[] = extractUsersList(usersRes);
         const requests: any[] =
           (await safe(() => getAllAutographRequests())) ?? [];
 
@@ -298,9 +385,10 @@ export default function EbookManagement() {
 
   const resetUploadForm = () => {
     setTitle("");
-    setReaderMessage("");
     setCoverUrl("");
     setFileUrl("");
+    setSelectedAuthorId(null);
+    setReaderMessage("");
     setFormError("");
   };
 
@@ -319,16 +407,12 @@ export default function EbookManagement() {
     setFormError("");
 
     const cleanTitle = title.trim();
-    const cleanMessage = readerMessage.trim();
     const cleanCover = coverUrl.trim();
     const cleanFile = fileUrl.trim();
+    const cleanMessage = readerMessage.trim();
 
     if (!cleanTitle) {
       setFormError("Please enter the ebook title.");
-      return;
-    }
-    if (!cleanMessage) {
-      setFormError("Please enter a reader message.");
       return;
     }
     if (!cleanCover) {
@@ -339,24 +423,52 @@ export default function EbookManagement() {
       setFormError("Please enter an ebook file URL.");
       return;
     }
+    if (!selectedAuthorId) {
+      setFormError("Please select an author to send the autograph request.");
+      return;
+    }
+    if (!cleanMessage) {
+      setFormError("Please enter a reader message.");
+      return;
+    }
 
     try {
       setUploading(true);
-      await createEbook({
+
+      const createdRes: any = await createEbook({
         title: cleanTitle,
         readerMessage: cleanMessage,
         coverUrl: cleanCover,
         fileUrl: cleanFile,
       });
 
+      const createdBook = createdRes?.data ?? createdRes?.ebook ?? createdRes;
+      const ebookId = createdBook?.id ? String(createdBook.id) : "";
+
+      if (!ebookId) {
+        throw new Error(
+          "Ebook uploaded, but new ebook ID was not returned by server.",
+        );
+      }
+
+      await createAutographRequest({
+        authorId: selectedAuthorId,
+        ebookId,
+        readerMessage: cleanMessage,
+      });
+
       resetUploadForm();
       setPage(1);
       setReloadKey((k) => k + 1);
-      setUploadSuccessMsg("Ebook uploaded successfully.");
+      setUploadSuccessMsg(
+        "Ebook uploaded and autograph request sent to author.",
+      );
       setView("list");
     } catch (err) {
       setFormError(
-        err instanceof Error ? err.message : "Could not upload ebook",
+        err instanceof Error
+          ? err.message
+          : "Could not complete upload / autograph request",
       );
     } finally {
       setUploading(false);
@@ -778,17 +890,60 @@ export default function EbookManagement() {
           </Text>
 
           <Stack gap={14}>
-            <Box>
-              <Text size="14px" c={accentCardBg} mb={8}>
-                Title
-              </Text>
-              <TextInput
-                placeholder="Smurf 2"
-                value={title}
-                onChange={(e) => setTitle(e.currentTarget.value)}
-                styles={inputStyles}
-              />
-            </Box>
+            <SimpleGrid cols={2} spacing={16}>
+              <Box>
+                <Text size="14px" c={accentCardBg} mb={8}>
+                  Title
+                </Text>
+                <TextInput
+                  placeholder="Smurf 2"
+                  value={title}
+                  onChange={(e) => setTitle(e.currentTarget.value)}
+                  styles={inputStyles}
+                />
+              </Box>
+
+              <Box>
+                <Text size="14px" c={accentCardBg} mb={8}>
+                  Select Author
+                </Text>
+                <Select
+                  placeholder={
+                    loadingAuthors ? "Loading authors..." : "Choose an author"
+                  }
+                  data={authors}
+                  value={selectedAuthorId}
+                  onChange={setSelectedAuthorId}
+                  searchable
+                  nothingFoundMessage="No author found"
+                  disabled={loadingAuthors}
+                  styles={{
+                    input: {
+                      ...inputStyles.input,
+                    },
+                    dropdown: {
+                      backgroundColor: "#2B2828",
+                      border: "1px solid #45413D",
+                      color: "#FFFFFF",
+                    },
+                    option: {
+                      color: "#FFFFFF",
+                      fontSize: "12px",
+                      backgroundColor: "transparent",
+                      "&[data-hovered]": {
+                        backgroundColor: "rgba(145, 69, 31, 0.55)",
+                        color: "#FFE8B6",
+                      },
+                      "&[data-checked], &[data-selected]": {
+                        backgroundColor: "#81401F",
+                        color: "#FFE8B6",
+                        fontWeight: 600,
+                      },
+                    },
+                  }}
+                />
+              </Box>
+            </SimpleGrid>
 
             <SimpleGrid cols={2} spacing={16}>
               <Box>
@@ -796,7 +951,7 @@ export default function EbookManagement() {
                   Cover URL
                 </Text>
                 <TextInput
-                  placeholder="https://example.com/cover.jpg"
+                  placeholder="https://picsum.photos/400/600"
                   value={coverUrl}
                   onChange={(e) => setCoverUrl(e.currentTarget.value)}
                   styles={inputStyles}
@@ -808,7 +963,7 @@ export default function EbookManagement() {
                   File URL
                 </Text>
                 <TextInput
-                  placeholder="https://example.com/ebook.pdf"
+                  placeholder="https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
                   value={fileUrl}
                   onChange={(e) => setFileUrl(e.currentTarget.value)}
                   styles={inputStyles}
@@ -821,7 +976,7 @@ export default function EbookManagement() {
                 Reader Message
               </Text>
               <Textarea
-                placeholder="Ebook for autograph request testing"
+                placeholder="Please sign my ebook."
                 value={readerMessage}
                 onChange={(e) => setReaderMessage(e.currentTarget.value)}
                 styles={{
