@@ -5,7 +5,10 @@ import {
   Flex,
   Text,
   Group,
+  Stack,
   TextInput,
+  Textarea,
+  Button,
   Avatar,
   SimpleGrid,
   Table,
@@ -15,7 +18,7 @@ import {
   Menu,
 } from "@mantine/core";
 
-import { MdSearch } from "react-icons/md";
+import { MdSearch, MdUpload } from "react-icons/md";
 import {
   FiFilter,
   FiFileText,
@@ -32,6 +35,7 @@ import bookCover from "../assets/Ebook-img.png";
 import {
   getEbooks,
   getEbookStats,
+  createEbook,
   getUserById,
   getMyProfile,
   getUsers,
@@ -134,21 +138,41 @@ function toBook(e: any, readers: Record<string, any>): Book {
 export default function EbookManagement() {
   const navigate = useNavigate();
 
+  const [role, setRole] = useState<string | null>(() => {
+    const saved = localStorage.getItem("role");
+    return saved ? saved.toUpperCase() : null;
+  });
+  const isReader = role === "READER";
+
+  const [view, setView] = useState<"list" | "upload">("list");
+
   const [books, setBooks] = useState<Book[]>([]);
   const [stats, setStats] = useState<EbookStats | null>(null);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [uploadSuccessMsg, setUploadSuccessMsg] = useState("");
 
   const [tableSearch, setTableSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<EbookFilterValue>("ALL");
   const [page, setPage] = useState(1);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // ---------- Upload form state (Reader) ----------
+  const [title, setTitle] = useState("");
+  const [readerMessage, setReaderMessage] = useState("");
+  const [coverUrl, setCoverUrl] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const pageSize = 4;
 
   const innerContainerBg = "#211E1E";
   const accentCardBg = "#FFE8B6";
+  const brown = "#81401F";
+  const inputBg = "#343131";
   const numberColor = "#2A1005";
 
   useEffect(() => {
@@ -159,14 +183,14 @@ export default function EbookManagement() {
     return () => clearTimeout(t);
   }, [tableSearch]);
 
-  // Stats: sirf ek baar. Fail ho to table ko na roke (sirf admin ke liye hain)
+  // Stats: fail ho to table ko na roke
   useEffect(() => {
     getEbookStats()
       .then(setStats)
       .catch(() => setStats(null));
-  }, []);
+  }, [reloadKey]);
 
-  // Ebooks: page, debouncedSearch aur statusFilter ke mutabiq backend se
+  // Ebooks + current user role
   useEffect(() => {
     let cancelled = false;
 
@@ -196,6 +220,12 @@ export default function EbookManagement() {
 
         const meRes: any = await safe(() => getMyProfile());
         const me = meRes?.data ?? meRes?.user ?? meRes;
+        if (!cancelled && me?.role) {
+          const r = String(me.role).toUpperCase();
+          localStorage.setItem("role", r);
+          setRole(r);
+        }
+
         const usersRes: any = await safe(() => getUsers(1, 100));
         const allUsers: any[] = Array.isArray(usersRes)
           ? usersRes
@@ -264,7 +294,74 @@ export default function EbookManagement() {
     return () => {
       cancelled = true;
     };
-  }, [page, debouncedSearch, statusFilter]);
+  }, [page, debouncedSearch, statusFilter, reloadKey]);
+
+  const resetUploadForm = () => {
+    setTitle("");
+    setReaderMessage("");
+    setCoverUrl("");
+    setFileUrl("");
+    setFormError("");
+  };
+
+  const openUploadView = () => {
+    resetUploadForm();
+    setUploadSuccessMsg("");
+    setView("upload");
+  };
+
+  const cancelUploadView = () => {
+    resetUploadForm();
+    setView("list");
+  };
+
+  const handleUploadSubmit = async () => {
+    setFormError("");
+
+    const cleanTitle = title.trim();
+    const cleanMessage = readerMessage.trim();
+    const cleanCover = coverUrl.trim();
+    const cleanFile = fileUrl.trim();
+
+    if (!cleanTitle) {
+      setFormError("Please enter the ebook title.");
+      return;
+    }
+    if (!cleanMessage) {
+      setFormError("Please enter a reader message.");
+      return;
+    }
+    if (!cleanCover) {
+      setFormError("Please enter a cover image URL.");
+      return;
+    }
+    if (!cleanFile) {
+      setFormError("Please enter an ebook file URL.");
+      return;
+    }
+
+    try {
+      setUploading(true);
+      await createEbook({
+        title: cleanTitle,
+        readerMessage: cleanMessage,
+        coverUrl: cleanCover,
+        fileUrl: cleanFile,
+      });
+
+      resetUploadForm();
+      setPage(1);
+      setReloadKey((k) => k + 1);
+      setUploadSuccessMsg("Ebook uploaded successfully.");
+      setView("list");
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "Could not upload ebook",
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const statCards = [
     { title: "Total Books", value: stats?.total ?? 0, icon: FiFileText },
@@ -319,290 +416,467 @@ export default function EbookManagement() {
     borderBottom: "1px solid rgba(255,255,255,0.12)",
   };
 
+  const inputStyles = {
+    input: {
+      height: "36px",
+      minHeight: "36px",
+      backgroundColor: inputBg,
+      border: "none",
+      borderRadius: "6px",
+      color: "#FFFFFF",
+      fontSize: "12px",
+      paddingLeft: "14px",
+    },
+  };
+
   return (
-    <ReaderLayout title="Ebook Management" activePage="ebooks">
-      <Box
-        style={{
-          backgroundColor: innerContainerBg,
-          borderRadius: "20px",
-          flex: 1,
-          minHeight: 0,
-          padding: "20px",
-          boxSizing: "border-box",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          gap: "16px",
-        }}
-      >
-        <SimpleGrid cols={4} spacing="md" style={{ flexShrink: 0 }}>
-          {statCards.map((card) => {
-            const CardIcon = card.icon;
+    <ReaderLayout
+      title={view === "upload" ? "Upload Ebook" : "Ebook Management"}
+      activePage="ebooks"
+    >
+      {view === "list" && (
+        <>
+          <Box
+            style={{
+              backgroundColor: innerContainerBg,
+              borderRadius: "20px",
+              flex: 1,
+              minHeight: 0,
+              padding: "20px",
+              boxSizing: "border-box",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+            }}
+          >
+            <SimpleGrid cols={4} spacing="md" style={{ flexShrink: 0 }}>
+              {statCards.map((card) => {
+                const CardIcon = card.icon;
 
-            return (
-              <Box
-                key={card.title}
-                style={{
-                  backgroundColor: accentCardBg,
-                  borderRadius: "14px",
-                  padding: "12px 14px",
-                }}
-              >
-                <Group justify="space-between" align="flex-start">
-                  <Box>
-                    <Text size="12px" c={numberColor} fw={600}>
-                      {card.title}
-                    </Text>
+                return (
+                  <Box
+                    key={card.title}
+                    style={{
+                      backgroundColor: accentCardBg,
+                      borderRadius: "14px",
+                      padding: "12px 14px",
+                    }}
+                  >
+                    <Group justify="space-between" align="flex-start">
+                      <Box>
+                        <Text size="12px" c={numberColor} fw={600}>
+                          {card.title}
+                        </Text>
 
-                    <Text size="22px" fw={800} c={numberColor} mt={2}>
-                      {card.value.toLocaleString()}
-                    </Text>
+                        <Text size="22px" fw={800} c={numberColor} mt={2}>
+                          {card.value.toLocaleString()}
+                        </Text>
+                      </Box>
+
+                      <CardIcon size={18} color={numberColor} />
+                    </Group>
                   </Box>
+                );
+              })}
+            </SimpleGrid>
 
-                  <CardIcon size={18} color={numberColor} />
-                </Group>
-              </Box>
-            );
-          })}
-        </SimpleGrid>
+            <Flex
+              justify="space-between"
+              align="center"
+              style={{ flexShrink: 0 }}
+            >
+              <Text size="22px" fw={700} c={accentCardBg}>
+                All Ebooks
+              </Text>
 
-        <Flex justify="space-between" align="center" style={{ flexShrink: 0 }}>
-          <Text size="22px" fw={700} c={accentCardBg}>
-            All Ebooks
+              <Group gap={12} wrap="nowrap">
+                <TextInput
+                  placeholder="Search"
+                  value={tableSearch}
+                  onChange={(event) =>
+                    setTableSearch(event.currentTarget.value)
+                  }
+                  leftSection={<MdSearch size={17} color="#D0D0D0" />}
+                  styles={{
+                    input: {
+                      width: "210px",
+                      height: "36px",
+                      backgroundColor: "#383838",
+                      border: "none",
+                      borderRadius: "20px",
+                      color: "#FFFFFF",
+                      paddingLeft: "36px",
+                      fontSize: "12px",
+                    },
+                  }}
+                />
+
+                {isReader && (
+                  <UnstyledButton onClick={openUploadView}>
+                    <Box
+                      px={16}
+                      style={{
+                        height: 36,
+                        borderRadius: "20px",
+                        backgroundColor: brown,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <MdUpload size={15} color={accentCardBg} />
+                      <Text size="12px" c={accentCardBg} fw={600}>
+                        Upload
+                      </Text>
+                    </Box>
+                  </UnstyledButton>
+                )}
+
+                <Menu shadow="md" width={150} position="bottom-end">
+                  <Menu.Target>
+                    <UnstyledButton>
+                      <Box
+                        px={16}
+                        style={{
+                          height: 36,
+                          borderRadius: "20px",
+                          backgroundColor:
+                            statusFilter === "ALL" ? "#383838" : "#91451F",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 7,
+                        }}
+                      >
+                        <FiFilter size={15} color="#E0E0E0" />
+
+                        <Text size="12px" c="#E0E0E0" fw={500}>
+                          {statusFilter === "ALL"
+                            ? "Filter"
+                            : activeFilterLabel}
+                        </Text>
+                      </Box>
+                    </UnstyledButton>
+                  </Menu.Target>
+
+                  <Menu.Dropdown
+                    style={{
+                      backgroundColor: "#2B2828",
+                      border: "1px solid #45413D",
+                    }}
+                  >
+                    {EBOOK_FILTER_ITEMS.map((item) => (
+                      <Menu.Item
+                        key={item.value}
+                        onClick={() => handleSelectFilter(item.value)}
+                        style={{
+                          color:
+                            statusFilter === item.value
+                              ? accentCardBg
+                              : "#FFFFFF",
+                          backgroundColor:
+                            statusFilter === item.value
+                              ? "rgba(145, 69, 31, 0.45)"
+                              : "transparent",
+                          fontSize: "12px",
+                        }}
+                      >
+                        {item.label}
+                      </Menu.Item>
+                    ))}
+                  </Menu.Dropdown>
+                </Menu>
+              </Group>
+            </Flex>
+
+            {uploadSuccessMsg && (
+              <Text c="green.4" size="xs" style={{ flexShrink: 0 }}>
+                {uploadSuccessMsg}
+              </Text>
+            )}
+
+            <Box style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+              {loading ? (
+                <Flex justify="center" py="xl">
+                  <Loader color={accentCardBg} size="sm" />
+                </Flex>
+              ) : error ? (
+                <Text ta="center" c="#FF6B6B" size="sm" py="xl">
+                  {error}
+                </Text>
+              ) : (
+                <Table
+                  verticalSpacing={8}
+                  horizontalSpacing={0}
+                  style={{
+                    color: "#CCCCCC",
+                    fontSize: "12px",
+                    width: "100%",
+                    tableLayout: "fixed",
+                  }}
+                >
+                  <Table.Thead>
+                    <Table.Tr style={{ borderBottom: "none" }}>
+                      <Table.Th style={{ ...thStyle, width: "30%" }}>
+                        Book Details
+                      </Table.Th>
+                      <Table.Th style={{ ...thStyle, width: "24%" }}>
+                        Uploaded By
+                      </Table.Th>
+                      <Table.Th style={{ ...thStyle, width: "22%" }}>
+                        Uploaded Date
+                      </Table.Th>
+                      <Table.Th style={{ ...thStyle, width: "14%" }}>
+                        Status
+                      </Table.Th>
+                      <Table.Th
+                        style={{
+                          ...thStyle,
+                          width: "10%",
+                          textAlign: "right",
+                          paddingRight: 8,
+                        }}
+                      >
+                        Action
+                      </Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+
+                  <Table.Tbody>
+                    {books.map((book) => {
+                      const [firstName, ...rest] = book.author.split(" ");
+
+                      return (
+                        <Table.Tr
+                          key={book.id}
+                          style={{ borderBottom: "none" }}
+                        >
+                          <Table.Td py={10} style={tdStyle}>
+                            <Group gap={10} wrap="nowrap">
+                              <Box
+                                style={{
+                                  width: 38,
+                                  height: 38,
+                                  flexShrink: 0,
+                                  border: "1px solid #9B8762",
+                                  overflow: "hidden",
+                                }}
+                              >
+                                <img
+                                  src={book.cover}
+                                  alt={book.title}
+                                  onError={(e) => {
+                                    e.currentTarget.src = bookCover;
+                                  }}
+                                  style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "cover",
+                                    display: "block",
+                                  }}
+                                />
+                              </Box>
+
+                              <Text size="12px" c="#E0E0E0" fw={500}>
+                                {book.title}
+                              </Text>
+                            </Group>
+                          </Table.Td>
+
+                          <Table.Td py={10} style={tdStyle}>
+                            <Group gap={8} wrap="nowrap">
+                              <UserAvatar
+                                url={book.avatar}
+                                name={book.author}
+                                size={34}
+                              />
+
+                              <Text
+                                size="11px"
+                                c="#FFFFFF"
+                                style={{ lineHeight: 1.25 }}
+                              >
+                                {firstName}
+                                <br />
+                                {rest.join(" ")}
+                              </Text>
+                            </Group>
+                          </Table.Td>
+
+                          <Table.Td c="#E0E0E0" py={10} style={tdStyle}>
+                            {book.date}
+                          </Table.Td>
+
+                          <Table.Td py={10} style={tdStyle}>
+                            <Box
+                              px={10}
+                              py={4}
+                              style={{
+                                ...getStatusStyle(book.status),
+                                borderRadius: "6px",
+                                display: "inline-block",
+                                fontSize: "10px",
+                                fontWeight: 500,
+                                lineHeight: 1.1,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {book.status}
+                            </Box>
+                          </Table.Td>
+
+                          <Table.Td py={10} style={tdStyle}>
+                            <Group justify="flex-end" wrap="nowrap">
+                              <ActionIcon
+                                variant="transparent"
+                                size={32}
+                                radius="xl"
+                                onClick={() =>
+                                  navigate(`/ebook-detail/${book.id}`)
+                                }
+                                style={{
+                                  backgroundColor: "transparent",
+                                  border: "1px solid rgba(255,232,182,0.75)",
+                                  color: accentCardBg,
+                                }}
+                              >
+                                <FiEye size={15} />
+                              </ActionIcon>
+                            </Group>
+                          </Table.Td>
+                        </Table.Tr>
+                      );
+                    })}
+                  </Table.Tbody>
+                </Table>
+              )}
+
+              {!loading && !error && books.length === 0 && (
+                <Text ta="center" c="#B8B4B0" size="sm" py="xl">
+                  No ebooks found.
+                </Text>
+              )}
+            </Box>
+          </Box>
+
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+        </>
+      )}
+
+      {view === "upload" && (
+        <Box
+          style={{
+            width: "100%",
+            backgroundColor: innerContainerBg,
+            borderRadius: "20px",
+            padding: "22px 20px 26px 20px",
+            boxSizing: "border-box",
+          }}
+        >
+          <Text size="20px" fw={700} c={accentCardBg} mb={16}>
+            Upload Ebook
           </Text>
 
-          <Group gap={16}>
-            <TextInput
-              placeholder="Search"
-              value={tableSearch}
-              onChange={(event) => setTableSearch(event.currentTarget.value)}
-              leftSection={<MdSearch size={17} color="#D0D0D0" />}
-              styles={{
-                input: {
-                  width: "220px",
-                  height: "36px",
-                  backgroundColor: "#383838",
-                  border: "none",
-                  borderRadius: "20px",
-                  color: "#FFFFFF",
-                  paddingLeft: "36px",
-                  fontSize: "12px",
-                },
-              }}
-            />
+          <Stack gap={14}>
+            <Box>
+              <Text size="14px" c={accentCardBg} mb={8}>
+                Title
+              </Text>
+              <TextInput
+                placeholder="Smurf 2"
+                value={title}
+                onChange={(e) => setTitle(e.currentTarget.value)}
+                styles={inputStyles}
+              />
+            </Box>
 
-            <Menu shadow="md" width={150} position="bottom-end">
-              <Menu.Target>
-                <UnstyledButton>
-                  <Box
-                    px={16}
-                    style={{
-                      height: 36,
-                      borderRadius: "20px",
-                      backgroundColor:
-                        statusFilter === "ALL" ? "#383838" : "#91451F",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 7,
-                    }}
-                  >
-                    <FiFilter size={15} color="#E0E0E0" />
+            <SimpleGrid cols={2} spacing={16}>
+              <Box>
+                <Text size="14px" c={accentCardBg} mb={8}>
+                  Cover URL
+                </Text>
+                <TextInput
+                  placeholder="https://example.com/cover.jpg"
+                  value={coverUrl}
+                  onChange={(e) => setCoverUrl(e.currentTarget.value)}
+                  styles={inputStyles}
+                />
+              </Box>
 
-                    <Text size="12px" c="#E0E0E0" fw={500}>
-                      {statusFilter === "ALL" ? "Filter" : activeFilterLabel}
-                    </Text>
-                  </Box>
-                </UnstyledButton>
-              </Menu.Target>
+              <Box>
+                <Text size="14px" c={accentCardBg} mb={8}>
+                  File URL
+                </Text>
+                <TextInput
+                  placeholder="https://example.com/ebook.pdf"
+                  value={fileUrl}
+                  onChange={(e) => setFileUrl(e.currentTarget.value)}
+                  styles={inputStyles}
+                />
+              </Box>
+            </SimpleGrid>
 
-              <Menu.Dropdown
-                style={{
-                  backgroundColor: "#2B2828",
-                  border: "1px solid #45413D",
+            <Box>
+              <Text size="14px" c={accentCardBg} mb={8}>
+                Reader Message
+              </Text>
+              <Textarea
+                placeholder="Ebook for autograph request testing"
+                value={readerMessage}
+                onChange={(e) => setReaderMessage(e.currentTarget.value)}
+                styles={{
+                  input: {
+                    height: "110px",
+                    minHeight: "110px",
+                    backgroundColor: inputBg,
+                    border: "none",
+                    borderRadius: "6px",
+                    color: "#FFFFFF",
+                    fontSize: "12px",
+                    padding: "12px 14px",
+                    resize: "none",
+                  },
                 }}
-              >
-                {EBOOK_FILTER_ITEMS.map((item) => (
-                  <Menu.Item
-                    key={item.value}
-                    onClick={() => handleSelectFilter(item.value)}
-                    style={{
-                      color:
-                        statusFilter === item.value ? accentCardBg : "#FFFFFF",
-                      backgroundColor:
-                        statusFilter === item.value
-                          ? "rgba(145, 69, 31, 0.45)"
-                          : "transparent",
-                      fontSize: "12px",
-                    }}
-                  >
-                    {item.label}
-                  </Menu.Item>
-                ))}
-              </Menu.Dropdown>
-            </Menu>
-          </Group>
-        </Flex>
+              />
+            </Box>
+          </Stack>
 
-        <Box style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-          {loading ? (
-            <Flex justify="center" py="xl">
-              <Loader color={accentCardBg} size="sm" />
-            </Flex>
-          ) : error ? (
-            <Text ta="center" c="#FF6B6B" size="sm" py="xl">
-              {error}
+          {formError && (
+            <Text c="red.4" size="xs" mt={12}>
+              {formError}
             </Text>
-          ) : (
-            <Table
-              verticalSpacing={8}
-              horizontalSpacing={0}
-              style={{
-                color: "#CCCCCC",
-                fontSize: "12px",
-                width: "100%",
-                tableLayout: "fixed",
-              }}
+          )}
+
+          <Group gap={16} mt={24} align="center">
+            <Button
+              w={170}
+              h={36}
+              radius={6}
+              color={brown}
+              c={accentCardBg}
+              fw={500}
+              onClick={handleUploadSubmit}
+              loading={uploading}
+              styles={{ root: { fontSize: "13px" } }}
             >
-              <Table.Thead>
-                <Table.Tr style={{ borderBottom: "none" }}>
-                  <Table.Th style={{ ...thStyle, width: "30%" }}>
-                    Book Details
-                  </Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "24%" }}>
-                    Uploaded By
-                  </Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "22%" }}>
-                    Uploaded Date
-                  </Table.Th>
-                  <Table.Th style={{ ...thStyle, width: "14%" }}>
-                    Status
-                  </Table.Th>
-                  <Table.Th
-                    style={{
-                      ...thStyle,
-                      width: "10%",
-                      textAlign: "right",
-                      paddingRight: 8,
-                    }}
-                  >
-                    Action
-                  </Table.Th>
-                </Table.Tr>
-              </Table.Thead>
+              Upload Ebook
+            </Button>
 
-              <Table.Tbody>
-                {books.map((book) => {
-                  const [firstName, ...rest] = book.author.split(" ");
-
-                  return (
-                    <Table.Tr key={book.id} style={{ borderBottom: "none" }}>
-                      <Table.Td py={10} style={tdStyle}>
-                        <Group gap={10} wrap="nowrap">
-                          <Box
-                            style={{
-                              width: 38,
-                              height: 38,
-                              flexShrink: 0,
-                              border: "1px solid #9B8762",
-                              overflow: "hidden",
-                            }}
-                          >
-                            <img
-                              src={book.cover}
-                              alt={book.title}
-                              onError={(e) => {
-                                e.currentTarget.src = bookCover;
-                              }}
-                              style={{
-                                width: "100%",
-                                height: "100%",
-                                objectFit: "cover",
-                                display: "block",
-                              }}
-                            />
-                          </Box>
-
-                          <Text size="12px" c="#E0E0E0" fw={500}>
-                            {book.title}
-                          </Text>
-                        </Group>
-                      </Table.Td>
-
-                      <Table.Td py={10} style={tdStyle}>
-                        <Group gap={8} wrap="nowrap">
-                          <UserAvatar
-                            url={book.avatar}
-                            name={book.author}
-                            size={34}
-                          />
-
-                          <Text
-                            size="11px"
-                            c="#FFFFFF"
-                            style={{ lineHeight: 1.25 }}
-                          >
-                            {firstName}
-                            <br />
-                            {rest.join(" ")}
-                          </Text>
-                        </Group>
-                      </Table.Td>
-
-                      <Table.Td c="#E0E0E0" py={10} style={tdStyle}>
-                        {book.date}
-                      </Table.Td>
-
-                      <Table.Td py={10} style={tdStyle}>
-                        <Box
-                          px={10}
-                          py={4}
-                          style={{
-                            ...getStatusStyle(book.status),
-                            borderRadius: "6px",
-                            display: "inline-block",
-                            fontSize: "10px",
-                            fontWeight: 500,
-                            lineHeight: 1.1,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {book.status}
-                        </Box>
-                      </Table.Td>
-
-                      <Table.Td py={10} style={tdStyle}>
-                        <Group justify="flex-end" wrap="nowrap">
-                          <ActionIcon
-                            variant="transparent"
-                            size={32}
-                            radius="xl"
-                            onClick={() => navigate(`/ebook-detail/${book.id}`)}
-                            style={{
-                              backgroundColor: "transparent",
-                              border: "1px solid rgba(255,232,182,0.75)",
-                              color: accentCardBg,
-                            }}
-                          >
-                            <FiEye size={15} />
-                          </ActionIcon>
-                        </Group>
-                      </Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-              </Table.Tbody>
-            </Table>
-          )}
-
-          {!loading && !error && books.length === 0 && (
-            <Text ta="center" c="#B8B4B0" size="sm" py="xl">
-              No ebooks found.
-            </Text>
-          )}
+            <Button
+              w={170}
+              h={36}
+              radius={6}
+              color="#2B2B2B"
+              c="#E0E0E0"
+              fw={400}
+              onClick={cancelUploadView}
+              styles={{ root: { fontSize: "13px" } }}
+            >
+              Cancel
+            </Button>
+          </Group>
         </Box>
-      </Box>
-
-      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+      )}
     </ReaderLayout>
   );
 }

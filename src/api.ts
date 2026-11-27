@@ -326,6 +326,13 @@ export type EbookQueryParams = {
   order?: "ASC" | "DESC";
 };
 
+export type CreateEbookPayload = {
+  title: string;
+  readerMessage: string;
+  coverUrl: string;
+  fileUrl: string;
+};
+
 export async function getEbookStats(): Promise<EbookStats> {
   const res = await request(`${BASE_URL}/ebooks/stats`, {
     headers: authHeaders(),
@@ -366,6 +373,15 @@ export async function getEbookById(id: string) {
     headers: authHeaders(),
   });
   return handle(res, "Could not load ebook");
+}
+
+export async function createEbook(payload: CreateEbookPayload) {
+  const res = await request(`${BASE_URL}/ebooks`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handle(res, "Could not upload ebook");
 }
 
 export async function deleteEbook(id: string) {
